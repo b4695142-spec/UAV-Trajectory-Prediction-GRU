@@ -1,0 +1,6 @@
+# 大文件 - 超过 GitHub 100MB 限制
+AGZ.bag
+
+# 处理后的数据（可本地重新生成）
+processed_data/*.npy
+processed_data/*.npz
