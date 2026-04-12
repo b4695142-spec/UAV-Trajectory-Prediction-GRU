@@ -13,7 +13,7 @@
 ## 📂 核心文件目录结构
 
 ```text
-AGZ_subset/
+UAV-Trajectory-Prediction-GRU/
 │
 ├── Log Files/
 │   └── OnboardGPS.csv        # 原始数据集 (UMAV/AGZ 无人机飞行日志)
@@ -85,6 +85,8 @@ python visualize.py
 | `Num_Layers` | 2 | GRU 网络叠加的层数 |
 | `Batch_Size` | 70 | 单批次处理的大小 (严格控制以匹配论文) |
 | `Learning_Rate`| 1e-3 | Adam 网络学习率 |
+| `Max_Epochs` | 500 | 最大训练轮次 |
+| `Patience` | 15 | Early Stopping 早停容忍连续无改善的轮数 |
 
 ---
 **注意**: 生成的数据缓存和日志大文件已在本地 `.gitignore` 中进行了配置忽略以保持代码库整洁。 
