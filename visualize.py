@@ -1,0 +1,277 @@
+"""
+==============================================================================
+UAV 轨迹预测 GRU 模型 — 测试集推理与 3D 轨迹可视化
+==============================================================================
+功能:
+    1. 加载测试集数据与训练好的最佳 GRU 模型权重
+    2. 执行推理，得到预测坐标
+    3. 对预测值和真实值进行反归一化，还原为真实世界坐标
+    4. 绘制 3D 轨迹对比图 (Actual vs Predicted)，保存为高清 PNG
+==============================================================================
+"""
+
+import os
+import numpy as np
+import torch
+import matplotlib.pyplot as plt
+
+# 设置中文字体 (解决中文显示问题)
+plt.rcParams['font.sans-serif'] = ['SimHei']  # 指定默认字体
+plt.rcParams['axes.unicode_minus'] = False     # 解决保存图像是负号'-'显示为方块的问题
+
+
+# 从同目录导入模型类
+from gru_model import UAVTrajectoryGRU
+
+
+# ============================================================================
+# 配置参数
+# ============================================================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "processed_data")
+
+# 数据路径
+X_TEST_PATH = os.path.join(DATA_DIR, "X_test.npy")
+Y_TEST_PATH = os.path.join(DATA_DIR, "Y_test.npy")
+SCALER_PATH = os.path.join(DATA_DIR, "scaler_params.npz")
+MODEL_PATH = os.path.join(DATA_DIR, "best_gru_model.pth")
+
+# 输出图片路径
+OUTPUT_IMG_PATH = os.path.join(BASE_DIR, "trajectory_3d_plot.png")
+
+# 模型超参数 (与训练时一致)
+INPUT_SIZE = 3
+HIDDEN_SIZE = 64
+NUM_LAYERS = 2
+OUTPUT_SIZE = 3
+
+# 可视化参数: 截取测试集中的连续片段用于绘图
+PLOT_START = 0       # 绘图起始索引
+PLOT_END = 400       # 绘图结束索引 (取前 400 个点展示机动细节)
+
+
+# ============================================================================
+# 步骤 1: 数据与模型加载 + 推理
+# ============================================================================
+def load_and_predict() -> tuple:
+    """
+    加载测试集与模型权重，执行推理。
+
+    返回:
+        Y_pred: numpy.ndarray, shape (n_test, 3), 模型预测的归一化坐标
+        Y_test: numpy.ndarray, shape (n_test, 3), 真实的归一化坐标
+    """
+    print("=" * 60)
+    print("  步骤 1: 数据与模型加载 + 推理")
+    print("=" * 60)
+
+    # 加载测试集
+    X_test = np.load(X_TEST_PATH)
+    Y_test = np.load(Y_TEST_PATH)
+    print(f"  X_test: {X_test.shape}  Y_test: {Y_test.shape}")
+
+    # 选择设备
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"  设备: {device}")
+
+    # 实例化模型
+    model = UAVTrajectoryGRU(
+        input_size=INPUT_SIZE,
+        hidden_size=HIDDEN_SIZE,
+        num_layers=NUM_LAYERS,
+        output_size=OUTPUT_SIZE,
+    )
+
+    # 加载最佳模型权重
+    model.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=True))
+    model.to(device)
+    model.eval()
+    print(f"  ✅ 模型权重已加载: {MODEL_PATH}")
+
+    # 转换为张量并送入模型
+    X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
+
+    with torch.no_grad():
+        Y_pred_tensor = model(X_test_tensor)  # (n_test, 3)
+
+    # 转回 numpy
+    Y_pred = Y_pred_tensor.cpu().numpy()
+
+    print(f"  ✅ 推理完成! 预测结果形状: {Y_pred.shape}")
+    print()
+
+    return Y_pred, Y_test
+
+
+# ============================================================================
+# 步骤 2: 反归一化 (Inverse Transform)
+# ============================================================================
+def inverse_transform(data: np.ndarray, data_min: np.ndarray, data_max: np.ndarray) -> np.ndarray:
+    """
+    MinMaxScaler 反归一化。
+
+    公式: X_original = X_scaled * (data_max - data_min) + data_min
+
+    参数:
+        data:      归一化后的数据, shape (n, 3)
+        data_min:  各特征最小值, shape (3,)
+        data_max:  各特征最大值, shape (3,)
+
+    返回:
+        还原后的真实世界坐标, shape (n, 3)
+    """
+    return data * (data_max - data_min) + data_min
+
+
+def denormalize(Y_pred: np.ndarray, Y_test: np.ndarray) -> tuple:
+    """
+    加载 scaler 参数并对预测值和真实值执行反归一化。
+
+    返回:
+        Y_pred_real: 反归一化后的预测坐标 (lat, lon, alt)
+        Y_test_real: 反归一化后的真实坐标 (lat, lon, alt)
+    """
+    print("=" * 60)
+    print("  步骤 2: 反归一化 (Inverse Transform)")
+    print("=" * 60)
+
+    # 加载归一化参数
+    scaler_params = np.load(SCALER_PATH)
+    data_min = scaler_params["data_min"]  # shape (3,)
+    data_max = scaler_params["data_max"]  # shape (3,)
+
+    print(f"  data_min (lat, lon, alt): {data_min}")
+    print(f"  data_max (lat, lon, alt): {data_max}")
+    print(f"  data_range:               {data_max - data_min}")
+
+    # 反归一化
+    Y_pred_real = inverse_transform(Y_pred, data_min, data_max)
+    Y_test_real = inverse_transform(Y_test, data_min, data_max)
+
+    # 打印反归一化后的统计信息
+    print(f"\n  反归一化后 — 真实值 (Y_test) 统计:")
+    labels = ["Latitude", "Longitude", "Altitude"]
+    for i, label in enumerate(labels):
+        print(f"    {label:>10}: min={Y_test_real[:, i].min():.6f}, "
+              f"max={Y_test_real[:, i].max():.6f}, "
+              f"mean={Y_test_real[:, i].mean():.6f}")
+
+    print(f"\n  反归一化后 — 预测值 (Y_pred) 统计:")
+    for i, label in enumerate(labels):
+        print(f"    {label:>10}: min={Y_pred_real[:, i].min():.6f}, "
+              f"max={Y_pred_real[:, i].max():.6f}, "
+              f"mean={Y_pred_real[:, i].mean():.6f}")
+
+    # 计算各维度的平均绝对误差 (MAE)
+    mae = np.mean(np.abs(Y_pred_real - Y_test_real), axis=0)
+    print(f"\n  各维度平均绝对误差 (MAE):")
+    for i, label in enumerate(labels):
+        unit = "°" if i < 2 else "m"
+        print(f"    {label:>10}: {mae[i]:.6f} {unit}")
+    print()
+
+    return Y_pred_real, Y_test_real
+
+
+# ============================================================================
+# 步骤 3: 3D 轨迹对比图绘制
+# ============================================================================
+def plot_3d_trajectory(Y_pred_real: np.ndarray, Y_test_real: np.ndarray) -> None:
+    """
+    绘制 3D 轨迹对比图: 真实轨迹 (灰色虚线) vs 预测轨迹 (红色实线)。
+
+    截取测试集中连续的一段 (PLOT_START:PLOT_END) 以清晰展示机动细节。
+    """
+    print("=" * 60)
+    print("  步骤 3: 3D 轨迹对比图绘制")
+    print("=" * 60)
+
+    # 截取绘图片段
+    actual = Y_test_real[PLOT_START:PLOT_END]
+    predicted = Y_pred_real[PLOT_START:PLOT_END]
+    n_points = len(actual)
+    print(f"  绘图区间: [{PLOT_START}, {PLOT_END}), 共 {n_points} 个点")
+
+    # 提取各维度
+    lat_actual, lon_actual, alt_actual = actual[:, 0], actual[:, 1], actual[:, 2]
+    lat_pred, lon_pred, alt_pred = predicted[:, 0], predicted[:, 1], predicted[:, 2]
+
+    # ------------------------------------------------------------------
+    # 创建 3D 图
+    # ------------------------------------------------------------------
+    fig = plt.figure(figsize=(14, 10), dpi=150)
+    ax = fig.add_subplot(111, projection="3d")
+
+    # 真实轨迹 — 灰色虚线
+    ax.plot(
+        lat_actual, lon_actual, alt_actual,
+        linestyle="--", color="gray", linewidth=1.5,
+        label="实际轨迹（真实值）", alpha=0.8,
+    )
+
+    # 预测轨迹 — 红色实线
+    ax.plot(
+        lat_pred, lon_pred, alt_pred,
+        linestyle="-", color="red", linewidth=1.5,
+        label="预测轨迹（GRU）", alpha=0.9,
+    )
+
+    # 标记起点和终点
+    ax.scatter(*actual[0], color="green", s=80, marker="o", zorder=5, label="起点")
+    ax.scatter(*actual[-1], color="blue", s=80, marker="^", zorder=5, label="终点")
+
+    # ------------------------------------------------------------------
+    # 坐标轴标签与标题
+    # ------------------------------------------------------------------
+    ax.set_xlabel("纬度 (°)", fontsize=12, labelpad=10)
+    ax.set_ylabel("经度 (°)", fontsize=12, labelpad=10)
+    ax.set_zlabel("高度 (m)", fontsize=12, labelpad=10)
+    ax.set_title(
+        f"无人机三维轨迹：实际轨迹与门控循环单元预测轨迹对比\n"
+        f"(测试集分数 {PLOT_START}–{PLOT_END})",
+        fontsize=14, fontweight="bold", pad=20,
+    )
+
+    # 图例
+    ax.legend(loc="upper left", fontsize=10, framealpha=0.9)
+
+    # 调整视角使轨迹更直观
+    ax.view_init(elev=25, azim=135)
+
+    # 紧凑布局
+    plt.tight_layout()
+
+    # ------------------------------------------------------------------
+    # 保存高清图片
+    # ------------------------------------------------------------------
+    fig.savefig(OUTPUT_IMG_PATH, dpi=300, bbox_inches="tight", pad_inches=0.3)
+    print(f"  ✅ 3D 轨迹图已保存: {OUTPUT_IMG_PATH}")
+
+    plt.close(fig)
+    print()
+
+
+# ============================================================================
+# 主函数
+# ============================================================================
+def main():
+    print("\n" + "▓" * 60)
+    print("  UAV 轨迹预测 — 测试集推理与 3D 可视化")
+    print("▓" * 60 + "\n")
+
+    # 步骤 1: 加载数据 + 推理
+    Y_pred, Y_test = load_and_predict()
+
+    # 步骤 2: 反归一化
+    Y_pred_real, Y_test_real = denormalize(Y_pred, Y_test)
+
+    # 步骤 3: 绘制 3D 轨迹对比图
+    plot_3d_trajectory(Y_pred_real, Y_test_real)
+
+    print("▓" * 60)
+    print("  全部完成!")
+    print("▓" * 60 + "\n")
+
+
+if __name__ == "__main__":
+    main()

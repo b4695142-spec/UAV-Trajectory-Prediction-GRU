@@ -1,76 +1,90 @@
-# AGZ 数据集说明 (AGZ Dataset Readme)
+# UAV 轨迹预测项目 (UAV Trajectory Prediction with GRU)
+
+本项目基于苏黎世城市微型飞行器 (UMAV/AGZ) 数据集，使用 PyTorch 框架构建了一个门控循环单元 (GRU) 神经网络，用于对无人机在未来的三维飞行轨迹（纬度、经度和海拔）进行连续时间序列预测。
+
+## 📋 项目简介
+
+该项目实现了一个完整的端到端时序预测工作流，包含了如下模块：
+- **数据清洗与预处理**：从原始 GPS 数据中提取关键特征，进行了降采样与归一化。
+- **序列构建**：使用滑动窗口机制构造 GRU 模型所需的时序输入数据。
+- **模型搭建与训练**：定义了两层 GRU 叠加的网络，配合 Early Stopping 自动保存最佳模型。
+- **直观可视化**：自动运行推理过程，并进行坐标系的反归一化，最终生成真实与预测的 3D 飞行轨迹对比图。
+
+## 📂 核心文件目录结构
+
+```text
+AGZ_subset/
+│
+├── Log Files/
+│   └── OnboardGPS.csv        # 原始数据集 (UMAV/AGZ 无人机飞行日志)
+│
+├── preprocess_uav.py         # 1. 核心特征提取、降采样 (0.03s -> 0.1s)、归一化、切分数据集
+├── build_sequences.py        # 2. 根据 Look_Back 和 Forward_Length 构造滑动窗口序列
+├── gru_model.py              # 3. PyTorch GRU 模型架构定义 (面向对象结构)
+├── train.py                  # 4. 训练核心代码：包含 Xavier 初始化、MSE 损失和早停机制
+├── visualize.py              # 5. 模型推理、反归一化还原真实坐标与 3D 绘图
+│
+└── processed_data/           # 预处理全流程自动生成的中间数据目录
+    ├── train_data.npy        # 步骤 1 输出的训练集
+    ├── test_data.npy         # 步骤 1 输出的测试集
+    ├── scaler_params.npz     # 步骤 1 输出的 MinMax 归一化参数 (用于反向推导)
+    ├── X_train.npy, Y_train.npy, ...  # 步骤 2 序列化后的建模数据
+    └── best_gru_model.pth    # 步骤 4 训练完成后保存的最佳模型权重
+```
+
+## 🛠️ 环境依赖
+
+请确保您的环境中安装了以下基础依赖：
+- Python 3.8+
+- `torch` (PyTorch，支持 CPU/GPU 自动切换)
+- `numpy`
+- `pandas`
+- `scikit-learn`
+- `matplotlib`
+
+## 🚀 快速开始指引 (Workflow)
+
+请严格按照以下顺序执行脚本进行测试及训练。
+
+### 1. 数据预处理
+运行预处理脚本以清洗原始 `OnboardGPS.csv` 并归一化至 `[0,1]` 范围：
+```bash
+python preprocess_uav.py
+```
+> *操作说明*：该脚本会将大约 30Hz 的高频信号降采样为 10Hz (0.1s点距)，并根据连续时间切分为 80% 训练集与 20% 测试集。
+
+### 2. 构造滑动窗口数据
+根据论文约束及定义自动切分过去观察长度及未来预测长度：
+```bash
+python build_sequences.py
+```
+> *核心参数*：默认过去观察窗口 `Look_Back=50` (5秒跨度的数据)，目标预测长度为 `Forward_Length=5` (预测未来 0.5s 时刻的位置)。
+
+### 3. 模型训练
+启动 PyTorch GRU 模型的训练过程：
+```bash
+python train.py
+```
+> *操作说明*：模型会自动通过 MSE 损失搭配 Adam 优化器在最佳显卡（优先使用 CUDA）上进行训练。如果在 15 个 epoch 内验证集没有改善则会立刻触发早停并保存当前最佳的参数集。
+
+### 4. 结果可视化与推理
+使用训练好的最佳模型进行测试验证并生成图片：
+```bash
+python visualize.py
+```
+> *操作说明*：会自动在项目根目录输出一张全高清的 3D 轨迹图 `trajectory_3d_plot.png`。由于数据需要真实还原，这里进行了一次 `inverse_transform` (反归一化) 绘制真实经纬度与海拔。
+
+## ⚙️ 关键超参数总结
+
+| 参数 | 默认设定值 | 描述说明 |
+|:---|:---|:---|
+| `Downsample Factor` | 3 | 获取 10Hz 数据的降低采样倍率 |
+| `Look_Back` | 50 | 窗口滑动观测长度 (用于构成 GRU 每个 batch ) |
+| `Forward_Length` | 5 | 往后预测第 N 个点的时间序列 |
+| `Hidden_Size` | 64 | GRU 网络内层特征维度大小 |
+| `Num_Layers` | 2 | GRU 网络叠加的层数 |
+| `Batch_Size` | 70 | 单批次处理的大小 (严格控制以匹配论文) |
+| `Learning_Rate`| 1e-3 | Adam 网络学习率 |
 
 ---
-
-### ⚠️ 重要提示：版权信息
-- **MAV 图像数据** (位于 `./AGZ/MAV Images/` 和 `./AGZ/MAV Images Calib/`)：版权归作者 Andras L. Majdik, Yves Albers-Schoenberg 和 Davide Scaramuzza 所有。这些数据可不受限制地用于学术研究。
-- **街景图像** (位于 `./AGZ/Street View Images/`)：版权归 Google Inc. 所有。更多详情请参考 [www.google.com/streetview](http://www.google.com/streetview)。
-
----
-
-## 📂 日志文件 (Log Files)
-
-这些文件存储在 `./AGZ/Log Files/` 目录下。
-
-### 1. `BarometricPressure.csv` (气压计数据)
-包含机载气压传感器的数据：
-- **列信息**：1: 时间戳 (Timestamp), 2: 气压 (Pressure), 3: 海拔 (Altitude), 4: 温度 (Temperature)
-
-### 2. `GroundTruthAGL.csv` (地面真实位置 AGL)
-包含相机位置的真实值：
-- **列信息**：
-  - 1: `imgid` (MAV 图像 ID)
-  - 2-4: `x_gt`, `y_gt`, `z_gt` (相机位置真实值 X, Y, Z)
-  - 5: `omega_gt` (偏航角 Yaw, 单位: 度)
-  - 6: `phi_gt` (俯仰角 Pitch, 单位: 度)
-  - 7: `kappa_gt` (翻滚角 Roll, 单位: 度)
-  - 8-10: `x_gps`, `y_gps`, `z_gps` (GPS 相机位置 X, Y, Z)
-- **坐标系**：所有位置值均采用 WGS 84 / UTM zone 32N 坐标系。可以使用 `plotPath.m` 在 Matlab 中进行可视化。
-
-### 3. `GroundTruthAGM` (最近邻街景图像)
-- **列信息**：1: 时间戳, 2: `imgid` (MAV 图像 ID), 3-5: `svid_1, svid_2, svid_3` (最近、次近和第三近的 Google 街景图像 ID)
-- **说明**：距离是根据原始 GPS 标签计算得出的。
-
-### 4. `OnbordGPS.csv` (机载 GPS 数据)
-包含 MAV 机载 GPS 接收器的数据：
-- **列信息**：
-  - 1: 时间戳, 2: `imgid` (MAV 图像 ID)
-  - 3: `lat` (纬度，单位：1E7 度)
-  - 4: `lon` (经度，单位：1E7 度)
-  - 5: `alt` (海拔，高于平均海平面 MSL，单位：1E3 米)
-  - 6: `s_variance_m_s` (速度精度估计，单位：m/s)
-  - 7: `c_variance_rad` (航向精度估计，单位：rad)
-  - 8: `fix_type` (定位类型：0-1: 未定位, 2: 2D 定位, 3: 3D 定位)
-  - 9: `eph_m` (水平定位精度 HDOP，单位：m)
-  - 10: `epv_m` (垂直定位精度 VDOP，单位：m)
-  - 11-13: `vel_n_m_s`, `vel_e_m_s`, `vel_d_m_s` (北、东、地向地面速度，单位：m/s)
-  - 14: `num_sat` (可见卫星数量)
-- [更多详情](https://home.hibu.no/AtekStudenter1212/doxygen/bb_handler/structvehicle__gps__position__s.html)
-
-### 5. `OnboardPose.csv` (机载姿态数据)
-包含原始传感器数据及由 PIXHAWK 自动驾驶仪估算的姿态：
-- **列信息**：1: 时间戳, 2-4: 角速度 (Omega_x/y/z), 5-7: 加速度 (Accel_x/y/z), 8-10: 速度 (Vel_x/y/z), 11-13: 加速度偏差 (AccBias_x/y/z), 14: 方位角 (Azimuth), 15-18: 四元数姿态 (Attitude_w/x/y/z), 19: 高度 (Height), 20: 海拔 (Altitude), 21: 俯仰角 (veh_pitch), 22-24: 系留相关参数, 25: GPS 是否开启
-
-### 6. `RawAccel.csv` & `RawGyro.csv` (原始加速度/陀螺仪数据)
-- **列信息**：1: 时间戳, 2: 错误计数, 3-5: x, y, z, 6: 温度, 7: 范围 (rad/s), 8: 比例, 9-11: 原始 x, y, z, 12: 原始温度
-
-### 7. `StreetViewGPS.csv` (街景 GPS 数据)
-包含每张数据库街景图像的 GPS 数据（地理标签）：
-- **列信息**：1: 纬度, 2: 经度, 3: 偏航角, 4: 倾斜偏航角, 5: 倾斜俯仰角, 6: 辅助变量
-
----
-
-## 🖼️ 图像文件夹
-
-- **`./AGZ/MAV Images/`**：包含在瑞士苏黎世由微型飞行器 (MAV) 拍摄的 81,169 张图像。
-- **`./AGZ/MAV Images Calib/`**：包含 30 张 MAV 拍摄的图像，用于计算相机内参。
-- **`./AGZ/Street View Images/`**：包含与 MAV 拍摄区域对应的 113 张街景图像。
-
----
-
-## 🛠️ 其他文件与脚本
-
-- **`./AGZ/calibration_data.npz`**：使用校准图像计算得出的相机内参。
-- **`./AGZ/loadGroundTruthAGL.m`**：用于 `plotPath.m` 加载数据到 Matlab 的脚本。
-- **`./AGZ/plotPath.m`**：在 Matlab 中可视化轨迹的脚本。
-- **`./AGZ/write_ros_bag.py`**：将数据写入 ROS bag 文件的脚本。执行方式：`python write_ros_bag.py`
+**注意**: 生成的数据缓存和日志大文件已在本地 `.gitignore` 中进行了配置忽略以保持代码库整洁。 
