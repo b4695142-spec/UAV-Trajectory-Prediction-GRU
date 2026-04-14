@@ -38,6 +38,7 @@ MODEL_PATH = os.path.join(DATA_DIR, "best_gru_model.pth")
 
 # 输出图片路径
 OUTPUT_IMG_PATH = os.path.join(BASE_DIR, "trajectory_3d_plot.png")
+OUTPUT_2D_ERROR_PATH = os.path.join(BASE_DIR, "trajectory_2d_error.png")
 
 # 模型超参数 (与训练时一致)
 INPUT_SIZE = 3
@@ -47,7 +48,7 @@ OUTPUT_SIZE = 3
 
 # 可视化参数: 截取测试集中的连续片段用于绘图
 PLOT_START = 0       # 绘图起始索引
-PLOT_END = 400       # 绘图结束索引 (取前 400 个点展示机动细节)
+PLOT_END = None      # 绘图结束索引 (设为 None 时表示绘制到最后所有的点)
 
 
 # ============================================================================
@@ -162,12 +163,35 @@ def denormalize(Y_pred: np.ndarray, Y_test: np.ndarray) -> tuple:
               f"max={Y_pred_real[:, i].max():.6f}, "
               f"mean={Y_pred_real[:, i].mean():.6f}")
 
-    # 计算各维度的平均绝对误差 (MAE)
+    # 计算各维度的平均绝对误差 (MAE) 和均方根误差 (RMSE)
     mae = np.mean(np.abs(Y_pred_real - Y_test_real), axis=0)
-    print(f"\n  各维度平均绝对误差 (MAE):")
+    rmse = np.sqrt(np.mean((Y_pred_real - Y_test_real) ** 2, axis=0))
+    avg_rmse = np.mean(rmse)
+    
+    # 整体测试集的 3D 平均欧氏距离误差
+    euclidean_distances = np.sqrt(np.sum((Y_pred_real - Y_test_real) ** 2, axis=1))
+    mean_euclidean = np.mean(euclidean_distances)
+
+    print(f"\n  反归一化后 — 误差指标统计:")
+    print(f"  各维度平均绝对误差 (MAE):")
     for i, label in enumerate(labels):
         unit = "°" if i < 2 else "m"
-        print(f"    {label:>10}: {mae[i]:.6f} {unit}")
+        if i < 2:
+            print(f"    {label:>10}: {mae[i]:.8f} {unit}")
+        else:
+            print(f"    {label:>10}: {mae[i]:.4f} {unit}")
+
+    print(f"\n  各维度均方根误差 (RMSE):")
+    for i, label in enumerate(labels):
+        unit = "°" if i < 2 else "m"
+        if i < 2:
+            print(f"    {label:>10}: {rmse[i]:.8f} {unit}")
+        else:
+            print(f"    {label:>10}: {rmse[i]:.4f} {unit}")
+
+    print(f"\n  综合预测误差:")
+    print(f"    Average RMSE    : {avg_rmse:.8f}")
+    print(f"    平均欧氏距离误差: {mean_euclidean:.4f} (3D 空间)")
     print()
 
     return Y_pred_real, Y_test_real
@@ -186,11 +210,13 @@ def plot_3d_trajectory(Y_pred_real: np.ndarray, Y_test_real: np.ndarray) -> None
     print("  步骤 3: 3D 轨迹对比图绘制")
     print("=" * 60)
 
+    plot_end = len(Y_test_real) if PLOT_END is None else PLOT_END
+
     # 截取绘图片段
-    actual = Y_test_real[PLOT_START:PLOT_END]
-    predicted = Y_pred_real[PLOT_START:PLOT_END]
+    actual = Y_test_real[PLOT_START:plot_end]
+    predicted = Y_pred_real[PLOT_START:plot_end]
     n_points = len(actual)
-    print(f"  绘图区间: [{PLOT_START}, {PLOT_END}), 共 {n_points} 个点")
+    print(f"  绘图区间: [{PLOT_START}, {plot_end}), 共 {n_points} 个点")
 
     # 提取各维度
     lat_actual, lon_actual, alt_actual = actual[:, 0], actual[:, 1], actual[:, 2]
@@ -204,31 +230,30 @@ def plot_3d_trajectory(Y_pred_real: np.ndarray, Y_test_real: np.ndarray) -> None
 
     # 真实轨迹 — 灰色虚线
     ax.plot(
-        lat_actual, lon_actual, alt_actual,
+        lon_actual, lat_actual, alt_actual,
         linestyle="--", color="gray", linewidth=1.5,
-        label="实际轨迹（真实值）", alpha=0.8,
+        label="实际轨迹", alpha=0.8,
     )
 
     # 预测轨迹 — 红色实线
     ax.plot(
-        lat_pred, lon_pred, alt_pred,
+        lon_pred, lat_pred, alt_pred,
         linestyle="-", color="red", linewidth=1.5,
         label="预测轨迹（GRU）", alpha=0.9,
     )
 
     # 标记起点和终点
-    ax.scatter(*actual[0], color="green", s=80, marker="o", zorder=5, label="起点")
-    ax.scatter(*actual[-1], color="blue", s=80, marker="^", zorder=5, label="终点")
+    ax.scatter(actual[0][1], actual[0][0], actual[0][2], color="green", s=80, marker="o", zorder=5, label="起点")
+    ax.scatter(actual[-1][1], actual[-1][0], actual[-1][2], color="blue", s=80, marker="^", zorder=5, label="终点")
 
     # ------------------------------------------------------------------
     # 坐标轴标签与标题
     # ------------------------------------------------------------------
-    ax.set_xlabel("纬度 (°)", fontsize=12, labelpad=10)
-    ax.set_ylabel("经度 (°)", fontsize=12, labelpad=10)
+    ax.set_xlabel("经度 (°)", fontsize=12, labelpad=10)
+    ax.set_ylabel("纬度 (°)", fontsize=12, labelpad=10)
     ax.set_zlabel("高度 (m)", fontsize=12, labelpad=10)
     ax.set_title(
-        f"无人机三维轨迹：实际轨迹与门控循环单元预测轨迹对比\n"
-        f"(测试集分数 {PLOT_START}–{PLOT_END})",
+        f"无人机三维轨迹：实际轨迹与GRU预测轨迹对比",
         fontsize=14, fontweight="bold", pad=20,
     )
 
@@ -246,8 +271,60 @@ def plot_3d_trajectory(Y_pred_real: np.ndarray, Y_test_real: np.ndarray) -> None
     # ------------------------------------------------------------------
     fig.savefig(OUTPUT_IMG_PATH, dpi=300, bbox_inches="tight", pad_inches=0.3)
     print(f"  ✅ 3D 轨迹图已保存: {OUTPUT_IMG_PATH}")
+    print()
 
-    plt.close(fig)
+
+# ============================================================================
+# 步骤 4: 2D 综合误差折线图绘制
+# ============================================================================
+def plot_2d_error_chart(Y_pred_real: np.ndarray, Y_test_real: np.ndarray) -> None:
+    """
+    绘制截取片段内，每个时间步的预测点与真实点之间的 3D 欧氏距离真实误差，保存为 2D 折线图。
+    """
+    print("=" * 60)
+    print("  步骤 4: 2D 综合误差折线图绘制")
+    print("=" * 60)
+    
+    plot_end = len(Y_test_real) if PLOT_END is None else PLOT_END
+
+    # 截取绘图片段
+    actual = Y_test_real[PLOT_START:plot_end]
+    predicted = Y_pred_real[PLOT_START:plot_end]
+    
+    # 计算每一个时间步下，真实点与预测点之间的 3D 欧氏距离 (综合误差)
+    real_error = np.sqrt(np.sum((predicted - actual) ** 2, axis=1))
+
+    # 创建 2D 折线图
+    fig, ax = plt.subplots(figsize=(12, 6), dpi=150)
+    
+    time_steps = np.arange(PLOT_START, plot_end)
+    
+    # 红色实线
+    ax.plot(
+        time_steps, real_error,
+        linestyle="-", color="red", linewidth=2.0,
+        label="综合真实误差"
+    )
+
+    # 坐标轴标签与标题
+    ax.set_title(
+        f"无人机综合预测误差随时间变化曲线", 
+        fontsize=14, fontweight="bold", pad=15
+    )
+    ax.set_xlabel("时间步", fontsize=12, labelpad=10)
+    ax.set_ylabel("综合真实误差", fontsize=12, labelpad=10)
+    
+    # 网格线
+    ax.grid(True, linestyle="--", alpha=0.7)
+    
+    # 图例
+    ax.legend(loc="upper right", fontsize=11, framealpha=0.9)
+
+    plt.tight_layout()
+
+    # 保存图片
+    fig.savefig(OUTPUT_2D_ERROR_PATH, dpi=300, bbox_inches="tight", pad_inches=0.1)
+    print(f"  ✅ 2D 误差折线图已保存: {OUTPUT_2D_ERROR_PATH}")
     print()
 
 
@@ -256,21 +333,27 @@ def plot_3d_trajectory(Y_pred_real: np.ndarray, Y_test_real: np.ndarray) -> None
 # ============================================================================
 def main():
     print("\n" + "▓" * 60)
-    print("  UAV 轨迹预测 — 测试集推理与 3D 可视化")
+    print("  UAV 轨迹预测 — 测试集推理与 3D/2D 可视化")
     print("▓" * 60 + "\n")
 
     # 步骤 1: 加载数据 + 推理
     Y_pred, Y_test = load_and_predict()
 
-    # 步骤 2: 反归一化
+    # 步骤 2: 反归一化并计算完整维度误差
     Y_pred_real, Y_test_real = denormalize(Y_pred, Y_test)
 
     # 步骤 3: 绘制 3D 轨迹对比图
     plot_3d_trajectory(Y_pred_real, Y_test_real)
 
+    # 步骤 4: 绘制 2D 综合误差折线图
+    plot_2d_error_chart(Y_pred_real, Y_test_real)
+
     print("▓" * 60)
-    print("  全部完成!")
+    print("  全部任务完成! 正在弹窗显示所有可视化图表...")
     print("▓" * 60 + "\n")
+    
+    # 统一在这里弹窗，这样可以同时打开 3D 和 2D 窗口
+    plt.show()
 
 
 if __name__ == "__main__":

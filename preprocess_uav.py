@@ -267,25 +267,7 @@ def main():
     print(f"  测试集: {test_path}")
     print(f"  Scaler: {scaler_path}")
     print()
-    print("=" * 60)
-    print("后续使用示例 — 构造滑动窗口序列:")
-    print("=" * 60)
-    print("""
-    import numpy as np
-
-    Look_Back = 10  # 滑动窗口长度 (可调)
-
-    train_data = np.load("processed_data/train_data.npy")
-
-    X_train, Y_train = [], []
-    for i in range(len(train_data) - Look_Back):
-        X_train.append(train_data[i : i + Look_Back])     # shape: (Look_Back, 3)
-        Y_train.append(train_data[i + Look_Back])          # shape: (3,)
-
-    X_train = np.array(X_train)  # shape: (batch_size, Look_Back, 3)
-    Y_train = np.array(Y_train)  # shape: (batch_size, 3)
-    """)
-
+   
     return train_data, test_data, scaler
 
 

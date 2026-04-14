@@ -226,9 +226,9 @@ def main():
     print(f"""
     ┌──────────────────────────────────────────────────┐
     │  超参数                                          │
-    │    Look_Back       = {LOOK_BACK:<26d} │
-    │    Forward_Length  = {FORWARD_LENGTH:<26d} │
-    │    预测时间跨度    = {FORWARD_LENGTH * 0.1:<26.1f} │
+    │    Look_Back       = {LOOK_BACK:<26d}  │
+    │    Forward_Length  = {FORWARD_LENGTH:<26d}  │
+    │    预测时间跨度    = {FORWARD_LENGTH * 0.1:<26.1f}  │
     ├──────────────────────────────────────────────────┤
     │  训练集                                          │
     │    X_train  {str(X_train.shape):<36s} │
