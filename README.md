@@ -1,106 +1,102 @@
-# UAV 轨迹预测项目 (UAV Trajectory Prediction with GRU)
+# UAV-Trajectory-Prediction-GRU
 
-本项目基于苏黎世城市微型飞行器 (UMAV/AGZ) 数据集，使用 PyTorch 框架构建了一个门控循环单元 (GRU) 神经网络，用于对无人机在未来的三维飞行轨迹（纬度、经度和海拔）进行连续时间序列预测。
+基于门控循环单元 (GRU) 神经网络的无人机 (UAV) 三维飞行轨迹预测系统。本项目针对苏黎世城市微型飞行器 (UMAV/AGZ) 数据集进行建模，实现对无人机未来位置（纬度、经度、海拔）的精准预测。
 
-## 📋 项目简介
+---
 
-该项目实现了一个完整的端到端时序预测工作流，包含了如下模块：
+## 🚀 项目亮点
 
-- **数据清洗与预处理**：从原始 GPS 数据中提取关键特征，进行了降采样与归一化。
-- **序列构建**：使用滑动窗口机制构造 GRU 模型所需的时序输入数据。
-- **模型搭建与训练**：定义了两层 GRU 叠加的网络，配合 Early Stopping 自动保存最佳模型。
-- **直观可视化**：自动运行推理过程，并进行坐标系的反归一化，最终生成真实与预测的 3D 飞行轨迹对比图。
+- **完整序列工程**：涵盖从原始 GPS 数据清洗、降采样、归一化到滑动窗口构建的全流程。
+- **高性能 GRU 架构**：采用双层叠加的 GRU 网络，具备更强的时序特征捕捉能力。
+- **精准评估体系**：除常规 MSE 损失外，还计算了物理含义明确的 MAE、RMSE 以及 **3D 空间欧氏距离误差**。
+- **双维度可视化**：
+    - **3D 轨迹图**：直观对比真实轨迹与预测轨迹的重合度。
+    - **2D 误差图**：实时分析预测误差随时间步的变化趋势。
 
-## 📂 核心文件目录结构
+---
+
+## 📂 目录结构
 
 ```text
 UAV-Trajectory-Prediction-GRU/
-│
-├── Log Files/
-│   └── OnboardGPS.csv        # 原始数据集 (UMAV/AGZ 无人机飞行日志)
-│
-├── preprocess_uav.py         # 1. 核心特征提取、降采样 (0.03s -> 0.1s)、归一化、切分数据集
-├── build_sequences.py        # 2. 根据 Look_Back 和 Forward_Length 构造滑动窗口序列
-├── gru_model.py              # 3. PyTorch GRU 模型架构定义 (面向对象结构)
-├── train.py                  # 4. 训练核心代码：包含 Xavier 初始化、MSE 损失和早停机制
-├── visualize.py              # 5. 模型推理、反归一化还原真实坐标与 3D 绘图
-│
-└── processed_data/           # 预处理全流程自动生成的中间数据目录
-    ├── train_data.npy        # 步骤 1 输出的训练集
-    ├── test_data.npy         # 步骤 1 输出的测试集
-    ├── scaler_params.npz     # 步骤 1 输出的 MinMax 归一化参数 (用于反向推导)
-    ├── X_train.npy, Y_train.npy, ...  # 步骤 2 序列化后的建模数据
-    └── best_gru_model.pth    # 步骤 4 训练完成后保存的最佳模型权重
+├── Log Files/               # 数据源目录
+│   └── OnboardGPS.csv       # 原始飞行日志 (30Hz)
+├── processed_data/          # 自动生成的中间件与产物
+│   ├── train_data.npy       # 归一化后的训练集
+│   ├── test_data.npy        # 归一化后的测试集
+│   ├── scaler_params.npz    # Min-Max 缩放参数 (用于反归一化)
+│   ├── X_train.npy/Y_train.npy  # 滑动窗口训练序列
+│   └── best_gru_model.pth    # 性能最优的模型权重文件
+├── preprocess_uav.py        # [步骤1] 数据预处理与归一化
+├── build_sequences.py       # [步骤2] 滑动窗口序列构建
+├── gru_model.py             # [核心] GRU 模型类定义
+├── train.py                 # [步骤3] 模型训练与早停优化
+├── visualize.py             # [步骤4] 测试集推理与多维可视化
+└── trajectory_*.png         # 最终输出的轨迹图与误差图
 ```
 
-## 🛠️ 环境依赖
+---
 
-请确保您的环境中安装了以下基础依赖：
+## 🛠️ 环境准备
 
-- Python 3.8+
-- `torch` (PyTorch，支持 CPU/GPU 自动切换)
-- `numpy`
-- `pandas`
-- `scikit-learn`
-- `matplotlib`
+请确保 Python 版本 >= 3.8，并安装以下依赖：
 
-## 🚀 快速开始指引 (Workflow)
+```bash
+pip install torch numpy pandas scikit-learn matplotlib
+```
 
-请严格按照以下顺序执行脚本进行测试及训练。
+---
+
+## 🏃 运行流程 (Quick Start)
+
+为保证模型训练效果，请严格遵循以下流水线：
 
 ### 1. 数据预处理
-
-运行预处理脚本以清洗原始 `OnboardGPS.csv` 并归一化至 `[0,1]` 范围：
-
 ```bash
 python preprocess_uav.py
 ```
+- **逻辑**：提取 `lat, lon, alt`，将 ~30Hz 降采样至 **10Hz** (0.1s 间隔)，并执行 Min-Max 归一化。
 
-> *操作说明*：该脚本会将大约 30Hz 的高频信号降采样为 10Hz (0.1s点距)，并根据连续时间切分为 80% 训练集与 20% 测试集。
-
-### 2. 构造滑动窗口数据
-
-根据论文约束及定义自动切分过去观察长度及未来预测长度：
-
+### 2. 构造序列数据
 ```bash
 python build_sequences.py
 ```
+- **配置**：默认观测长度 `Look_Back = 50` (5.0s 历史)，预测目标为未来第 5 个点 (`Forward_Length = 5`，即 0.5s 后)。
 
-> *核心参数*：默认过去观察窗口 `Look_Back=50` (5秒跨度的数据)，目标预测长度为 `Forward_Length=5` (预测未来 0.5s 时刻的位置)。
-
-### 3. 模型训练
-
-启动 PyTorch GRU 模型的训练过程：
-
+### 3. 执行模型训练
 ```bash
 python train.py
 ```
+- **参数**：Batch Size = 70，学习率 = 1e-3。采用 **Early Stopping** (Patience=15) 机制防止过拟合，并保存测试集表现最佳的模型。
 
-> *操作说明*：模型会自动通过 MSE 损失搭配 Adam 优化器在最佳显卡（优先使用 CUDA）上进行训练。如果在 15 个 epoch 内验证集没有改善则会立刻触发早停并保存当前最佳的参数集。
-
-### 4. 结果可视化与推理
-
-使用训练好的最佳模型进行测试验证并生成图片：
-
+### 4. 结果验证与绘图
 ```bash
 python visualize.py
 ```
-
-> *操作说明*：会自动在项目根目录输出一张全高清的 3D 轨迹图 `trajectory_3d_plot.png`。由于数据需要真实还原，这里进行了一次 `inverse_transform` (反归一化) 绘制真实经纬度与海拔。
-
-## ⚙️ 关键超参数总结
-
-| 参数 | 默认设定值 | 描述说明 |
-| :--- | :--- | :--- |
-| `Downsample Factor` | 3 | 获取 10Hz 数据的降低采样倍率 |
-| `Look_Back` | 50 | 窗口滑动观测长度 (用于构成 GRU 每个 batch ) |
-| `Forward_Length` | 5 | 往后预测第 N 个点的时间序列 |
-| `Hidden_Size` | 64 | GRU 网络内层特征维度大小 |
-| `Num_Layers` | 2 | GRU 网络叠加的层数 |
-| `Batch_Size` | 70 | 单批次处理的大小 (严格控制以匹配论文) |
-| `Learning_Rate` | 1e-3 | Adam 网络学习率 |
-| `Max_Epochs` | 500 | 最大训练轮次 |
-| `Patience` | 15 | Early Stopping 早停容忍连续无改善的轮数 |
+- **输出**：在反归一化真实坐标系下计算误差，并生成 `trajectory_3d_plot.png` 和 `trajectory_2d_error.png`。
 
 ---
-**注意**: 生成的数据缓存和日志大文件已在本地 `.gitignore` 中进行了配置忽略以保持代码库整洁。
+
+## 🧠 模型细节
+
+### 神经网络架构
+- **输入层**：(Batch, 50, 3) -> 包含 50 个连续时刻的三维坐标序列。
+- **隐藏层**：2 层叠加 GRU，Hidden Size = 64。
+- **输出层**：Linear 层 (64 -> 3)，输出未来指定时刻的 `(lat, lon, alt)`。
+- **初始化**：权重采用 **Xavier Uniform (Glorot)** 初始化。
+
+### 误差评估指标
+系统在推理阶段会自动输出以下物理指标：
+- **MAE / RMSE**：分别针对经度、纬度、高度计算平均绝对误差和均方根误差。
+- **Average Euclidean Error**：在 3D 物理空间中的预测点与真实点之间的平均欧几里得距离。
+
+---
+
+## 📊 可视化示例
+
+项目运行结束后将获得：
+1. **3D 轨迹图**：展示无人机在三维空间中的实际机动路径与 GRU 预测路径。
+2. **2D 误差变化曲线**：横轴为时间步，纵轴为 3D 欧氏距离误差，用于分析预测稳定性。
+
+---
+**数据集引用**：Zurich Urban Micro Aerial Vehicle (UMAV) Dataset.

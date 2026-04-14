@@ -1,20 +1,34 @@
-# # Python
-# __pycache__/
-# *.py[cod]
-# *$py.class
+# --- Python 缓存 ---
+__pycache__/
+*.py[cod]
+*$py.class
 
-# # 虚拟环境
-# .venv/
-# venv/
-# ENV/
-# env/
+# --- 虚拟环境 ---
+.venv/
+venv/
+env/
+ENV/
 
-# # 日志
-# *.log
+# --- 编辑器配置 ---
+.vscode/
+.idea/
+*.swp
+*.swo
 
-# # 处理后的数据（可本地重新生成）
-# processed_data/*.npy
-# processed_data/*.npz
+# --- 项目生成数据与模型 (大型文件) ---
+processed_data/
+*.npy
+*.npz
+*.pth
 
-# # 原始大数据
-# Log Files/
+# --- 原始数据集 (可选，若文件过大建议忽略) ---
+Log Files/*.csv
+
+# --- 可视化结果图片 ---
+trajectory_*.png
+*.jpg
+*.jpeg
+
+# --- 操作系统文件 ---
+.DS_Store
+Thumbs.db
