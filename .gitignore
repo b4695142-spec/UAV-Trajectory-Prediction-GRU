@@ -1,20 +1,20 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
+# # Python
+# __pycache__/
+# *.py[cod]
+# *$py.class
 
-# 虚拟环境
-.venv/
-venv/
-ENV/
-env/
+# # 虚拟环境
+# .venv/
+# venv/
+# ENV/
+# env/
 
-# 日志
-*.log
+# # 日志
+# *.log
 
-# 处理后的数据（可本地重新生成）
-processed_data/*.npy
-processed_data/*.npz
+# # 处理后的数据（可本地重新生成）
+# processed_data/*.npy
+# processed_data/*.npz
 
-# 原始大数据
-Log Files/
+# # 原始大数据
+# Log Files/
