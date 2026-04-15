@@ -311,7 +311,7 @@ def plot_2d_error_chart(Y_pred_real: np.ndarray, Y_test_real: np.ndarray) -> Non
 
     # 坐标轴标签与标题
     ax.set_title(
-        f"无人机综合预测误差随时间变化曲线", 
+        f"GRU 综合预测误差随时间变化曲线", 
         fontsize=14, fontweight="bold", pad=15
     )
     ax.set_xlabel("时间步", fontsize=12, labelpad=10)
