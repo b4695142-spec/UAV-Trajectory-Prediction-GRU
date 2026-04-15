@@ -1,0 +1,65 @@
+# --- Python 字节码与缓存 ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# --- Python 分发与打包 ---
+dist/
+build/
+*.egg-info/
+*.egg
+
+# --- 虚拟环境 ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Jupyter Notebook ---
+.ipynb_checkpoints/
+
+# --- 测试与类型检查缓存 ---
+.pytest_cache/
+.mypy_cache/
+
+# --- pip 安装日志 ---
+pip-log.txt
+pip-delete-this-directory.txt
+
+# --- 环境变量与密钥 ---
+.env
+.env.*
+*.key
+*.pem
+
+# --- IDE 与编辑器配置 ---
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# --- 项目生成数据与模型 (大型文件) ---
+processed_data/
+*.npy
+*.npz
+*.pth
+*.pt
+*.ckpt
+*.h5
+
+# --- 原始数据集 ---
+Log Files/
+
+# --- 可视化结果图片 ---
+*.png
+*.jpg
+*.jpeg
+*.svg
+*.gif
+
+# --- 操作系统文件 ---
+.DS_Store
+Thumbs.db
+desktop.ini
