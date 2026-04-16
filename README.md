@@ -1,6 +1,6 @@
 # UAV-Trajectory-Prediction-GRU
 
-基于门控循环单元 (GRU) 神经网络的无人机 (UAV) 三维飞行轨迹预测系统。本项目针对苏黎世城市微型飞行器 (UMAV/AGZ) 数据集进行建模，实现对无人机未来位置（纬度、经度、海拔）的精准预测。
+基于门控循环单元 (GRU) 神经网络的无人机 (UAV) 三维飞行轨迹预测系统。本项目针对苏黎世城市微型飞行器 (UMAV/AGZ) 数据集进行建模，基于历史观测序列实现对无人机位置（纬度、经度、海拔）的精准预测。
 
 ---
 
@@ -87,8 +87,8 @@ python build_sequences.py
 - **输入**：步骤 1 生成的 `train_data.npy` 和 `test_data.npy`
 - **配置**：
     - 观测窗口 `Look_Back = 50`（即 5.0s 历史数据）
-    - 预测步长 `Forward_Length = 5`（即 0.5s 后的目标位置）
-- **滑动窗口公式**：对于时间点 t，输入 `data[t-49 : t+1]`，目标 `data[t+5]`
+    - 预测步长 `Forward_Length = 0`（即当前时刻的目标位置）
+- **滑动窗口公式**：对于时间点 t，输入 `data[t-49 : t+1]`，目标 `data[t+0]`（即 `data[t]`）
 - **输出**：`processed_data/X_train.npy`、`Y_train.npy`、`X_test.npy`、`Y_test.npy`
 
 ### 3. 执行模型训练
@@ -134,7 +134,7 @@ GRU × 2 层 (hidden_size=64, batch_first=True)
     ↓  ← 取最后一个时间步的隐藏状态 gru_out[:, -1, :]
 Linear (64 → 3)
     ↓  ← 无激活函数，线性回归投影
-输出 (batch_size, 3)  →  未来 t+5 时刻的 (lat, lon, alt)
+输出 (batch_size, 3)  →  t 时刻的 (lat, lon, alt)
 ```
 
 | 组件 | 参数 |
@@ -171,7 +171,7 @@ Linear (64 → 3)
 | | `DOWNSAMPLE_FACTOR` | 3 | 降采样因子 (自动计算) |
 | | `TRAIN_RATIO` | 0.8 | 训练集比例 |
 | `build_sequences.py` | `LOOK_BACK` | 50 | 历史观测步长 |
-| | `FORWARD_LENGTH` | 5 | 未来预测步长 |
+| | `FORWARD_LENGTH` | 0 | 未来预测步长 |
 | `train.py` | `BATCH_SIZE` | 70 | 批次大小 |
 | | `LEARNING_RATE` | 1e-3 | Adam 学习率 |
 | | `MAX_EPOCHS` | 500 | 最大训练轮数 |

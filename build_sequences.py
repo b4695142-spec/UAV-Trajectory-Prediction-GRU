@@ -25,7 +25,7 @@ import numpy as np
 # 超参数配置
 # ============================================================================
 LOOK_BACK = 50           # 历史观测步长 (最优值，来源于论文)
-FORWARD_LENGTH = 0       # 未来预测步长 (0.1s × 5 = 0.5s，可调)
+FORWARD_LENGTH = 0       # 未来预测步长 (0 表示预测当前时刻位置，可调)
 
 # 数据路径
 DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "processed_data")
