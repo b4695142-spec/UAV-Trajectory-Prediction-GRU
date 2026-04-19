@@ -11,14 +11,41 @@ UAV 轨迹预测 GRU 模型 — 测试集推理与 3D 轨迹可视化
 """
 
 import os
+import sys
 import time
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
+from matplotlib.font_manager import FontManager
 
-# 设置中文字体 (解决中文显示问题)
-plt.rcParams['font.sans-serif'] = ['SimHei']  # 指定默认字体
-plt.rcParams['axes.unicode_minus'] = False     # 解决保存图像是负号'-'显示为方块的问题
+
+def setup_chinese_font():
+    font_candidates = {
+        'win32': ['SimHei', 'Microsoft YaHei', 'SimSun'],
+        'linux': ['WenQuanYi Micro Hei', 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans'],
+        'darwin': ['PingFang SC', 'Heiti TC', 'STHeiti', 'Arial Unicode MS'],
+    }
+
+    platform = sys.platform
+    if platform not in font_candidates:
+        print(f"⚠️  警告: 未识别的操作系统 '{platform}'，尝试使用默认字体配置")
+        return
+
+    available_fonts = set(FontManager().get_font_names())
+
+    for font_name in font_candidates[platform]:
+        if font_name in available_fonts:
+            plt.rcParams['font.sans-serif'] = [font_name]
+            plt.rcParams['axes.unicode_minus'] = False
+            print(f"✅ 已配置中文字体: {font_name}")
+            return
+
+    print(f"⚠️  警告: 系统中未找到可用的中文字体")
+    print(f"   候选字体列表: {', '.join(font_candidates[platform])}")
+    print(f"   图表中的中文可能显示为方块，建议安装上述字体之一")
+
+
+setup_chinese_font()
 
 
 # 从同目录导入模型类
