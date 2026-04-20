@@ -6,8 +6,13 @@ UAV 轨迹数据预处理脚本 — 用于 GRU 时间序列预测模型
 处理流程:
     1. 核心特征提取 (纬度、经度、海拔)
     2. 数据降采样 (~0.03s → 0.1s)
-    3. Min-Max 归一化缩放 ([0, 1])
-    4. 按时间顺序 80:20 切分训练集 / 测试集
+    3. 按时间顺序 80:20 切分训练集 / 测试集
+    4. Min-Max 归一化缩放 ([0, 1]) — 仅在训练集上 fit，消除数据泄漏
+
+【公平性修正】
+    原始版本在全量数据上 fit MinMaxScaler 后再切分，导致测试集的
+    min/max 信息泄漏到 scaler 中。修正后改为先切分再归一化，
+    仅在训练集上 fit scaler，与意图增强版管线保持一致。
 ==============================================================================
 """
 
@@ -129,9 +134,13 @@ def downsample(df: pd.DataFrame, factor: int) -> pd.DataFrame:
     return df_down
 
 
-def normalize_features(df: pd.DataFrame, feature_cols: list) -> tuple:
+def normalize_features(
+    train_data: np.ndarray,
+    test_data: np.ndarray,
+    feature_cols: list,
+) -> tuple:
     """
-    步骤 3: Min-Max 归一化。
+    步骤 4: Min-Max 归一化 (仅在训练集上 fit)。
 
     使用 sklearn.preprocessing.MinMaxScaler，将纬度/经度/海拔
     统一映射到 [0, 1] 区间，消除量级差异:
@@ -139,60 +148,74 @@ def normalize_features(df: pd.DataFrame, feature_cols: list) -> tuple:
         - 经度 (lon):  ~8.55°     (个位数量级)
         - 海拔 (alt):  ~460-480m  (百位数量级)
 
+    ⚠️ 公平性修正: 仅在训练集上 fit scaler，再 transform 测试集，
+    避免测试集的 min/max 信息泄漏到归一化参数中。
+
+    参数:
+        train_data:   numpy.ndarray, shape = (n_train, 3), 训练集原始数据
+        test_data:    numpy.ndarray, shape = (n_test, 3),  测试集原始数据
+        feature_cols: list, 特征列名 (仅用于日志)
+
     返回:
-        scaled_data: numpy.ndarray, shape = (n_samples, 3), 归一化后的数据
-        scaler: MinMaxScaler 实例 (用于后续逆变换还原预测值)
+        train_scaled: numpy.ndarray, shape = (n_train, 3), 归一化后的训练集
+        test_scaled:  numpy.ndarray, shape = (n_test, 3),  归一化后的测试集
+        scaler:       MinMaxScaler 实例 (用于后续逆变换还原预测值)
     """
     print("=" * 60)
-    print("步骤 3: Min-Max 归一化")
+    print("步骤 4: Min-Max 归一化 (仅在训练集上 fit — 消除数据泄漏)")
     print("=" * 60)
 
-    data = df[feature_cols].values
-    print(f"  归一化前各特征统计:")
+    print(f"  归一化前各特征统计 (训练集):")
     for i, col in enumerate(feature_cols):
-        col_data = data[:, i]
+        col_data = train_data[:, i]
         print(f"    {col}: min={col_data.min():.6f}, max={col_data.max():.6f}, "
               f"mean={col_data.mean():.6f}, range={col_data.max() - col_data.min():.6f}")
 
-    # 创建 MinMaxScaler，默认映射到 [0, 1]
     scaler = MinMaxScaler(feature_range=(0, 1))
-
-    # 拟合并转换数据
-    scaled_data = scaler.fit_transform(data)
+    train_scaled = scaler.fit_transform(train_data)
+    test_scaled = scaler.transform(test_data)
 
     print(f"\n  ✅ 归一化完成! 映射区间: [0, 1]")
-    print(f"  归一化后各特征统计:")
+    print(f"  归一化后各特征统计 (训练集):")
     for i, col in enumerate(feature_cols):
-        col_data = scaled_data[:, i]
+        col_data = train_scaled[:, i]
+        print(f"    {col}: min={col_data.min():.6f}, max={col_data.max():.6f}, "
+              f"mean={col_data.mean():.6f}")
+
+    print(f"\n  归一化后各特征统计 (测试集):")
+    for i, col in enumerate(feature_cols):
+        col_data = test_scaled[:, i]
         print(f"    {col}: min={col_data.min():.6f}, max={col_data.max():.6f}, "
               f"mean={col_data.mean():.6f}")
 
     print(f"\n  提示: 使用 scaler.inverse_transform() 可将预测结果还原为原始坐标。\n")
 
-    return scaled_data, scaler
+    return train_scaled, test_scaled, scaler
 
 
 def split_train_test(data: np.ndarray, train_ratio: float) -> tuple:
     """
-    步骤 4: 按时间顺序划分训练集与测试集 (80:20)。
+    步骤 3: 按时间顺序划分训练集与测试集 (80:20)。
 
     ⚠️ 重要: 这是连续时间序列轨迹预测任务，
     绝对不能使用 sklearn.train_test_split() 打乱数据!
     必须严格按照时间先后顺序进行切分。
 
+    ⚠️ 公平性修正: 切分在归一化之前执行，确保归一化参数
+    仅从训练集计算，避免测试集信息泄漏。
+
     返回:
-        train_data: numpy.ndarray, 前 80% 的数据
-        test_data:  numpy.ndarray, 后 20% 的数据
+        train_data: numpy.ndarray, 前 80% 的数据 (原始值)
+        test_data:  numpy.ndarray, 后 20% 的数据 (原始值)
     """
     print("=" * 60)
-    print("步骤 4: 训练集 / 测试集划分 (时序切分，无打乱)")
+    print("步骤 3: 训练集 / 测试集划分 (时序切分，无打乱)")
     print("=" * 60)
 
     n_total = len(data)
     n_train = int(n_total * train_ratio)
     n_test = n_total - n_train
 
-    # 严格按时间顺序: 前 80% 为训练集, 后 20% 为测试集
     train_data = data[:n_train]
     test_data = data[n_train:]
 
@@ -212,7 +235,10 @@ def split_train_test(data: np.ndarray, train_ratio: float) -> tuple:
 def main():
     """
     执行完整的数据预处理流水线:
-        原始 CSV → 特征提取 → 降采样 → 归一化 → 训练/测试划分
+        原始 CSV → 特征提取 → 降采样 → 训练/测试划分 → 归一化 (仅 train fit)
+
+    【公平性修正】流程顺序调整为先切分再归一化，
+    与意图增强版管线 (prepare_intent.py) 保持一致。
     """
     print("\n" + "▓" * 60)
     print("  UAV 轨迹数据预处理 — GRU 模型训练数据准备")
@@ -228,22 +254,21 @@ def main():
     # ------------------------------------------------------------------
     df_downsampled = downsample(df, factor=DOWNSAMPLE_FACTOR)
 
-    # 降采样后丢弃时间戳列，只保留位置特征
     feature_cols = ["lat", "lon", "alt"]
-    df_features = df_downsampled[feature_cols].copy()
+    raw_data = df_downsampled[feature_cols].to_numpy(dtype=np.float64)
 
     # ------------------------------------------------------------------
-    # 步骤 3: Min-Max 归一化 [0, 1]
+    # 步骤 3: 按时间顺序 80:20 划分训练集 / 测试集 (先切分!)
     # ------------------------------------------------------------------
-    scaled_data, scaler = normalize_features(df_features, feature_cols)
+    train_raw, test_raw = split_train_test(raw_data, TRAIN_RATIO)
 
     # ------------------------------------------------------------------
-    # 步骤 4: 按时间顺序 80:20 划分训练集 / 测试集
+    # 步骤 4: Min-Max 归一化 [0, 1] (仅在训练集上 fit)
     # ------------------------------------------------------------------
-    train_data, test_data = split_train_test(scaled_data, TRAIN_RATIO)
+    train_data, test_data, scaler = normalize_features(train_raw, test_raw, feature_cols)
 
     # ------------------------------------------------------------------
-    # 保存处理结果 (可选): 方便后续直接加载
+    # 保存处理结果
     # ------------------------------------------------------------------
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -254,7 +279,6 @@ def main():
     np.save(train_path, train_data)
     np.save(test_path, test_data)
 
-    # 保存 scaler 参数，用于后续预测结果的逆变换
     np.savez(scaler_path,
              data_min=scaler.data_min_,
              data_max=scaler.data_max_,
@@ -267,7 +291,7 @@ def main():
     print(f"  测试集: {test_path}")
     print(f"  Scaler: {scaler_path}")
     print()
-   
+
     return train_data, test_data, scaler
 
 

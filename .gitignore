@@ -48,6 +48,10 @@ processed_data/
 *.pt
 *.ckpt
 *.h5
+*.pkl
+
+# --- 意图识别模块对比评估产物 ---
+compare_metrics.json
 
 # --- 原始数据集 ---
 Log Files/

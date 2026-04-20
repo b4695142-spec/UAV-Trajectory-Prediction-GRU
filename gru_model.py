@@ -25,10 +25,14 @@ class UAVTrajectoryGRU(nn.Module):
     面向对象的 GRU 轨迹预测模型。
 
     参数:
-        input_size  (int): 输入特征维度，默认 3 (纬度, 经度, 海拔)
-        hidden_size (int): GRU 隐藏层维度，默认 64
-        num_layers  (int): GRU 堆叠层数，默认 2
-        output_size (int): 输出维度，默认 3 (预测的纬度, 经度, 海拔)
+        input_size  (int):   输入特征维度，默认 3 (纬度, 经度, 海拔)
+        hidden_size (int):   GRU 隐藏层维度，默认 64
+        num_layers  (int):   GRU 堆叠层数，默认 2
+        output_size (int):   输出维度，默认 3 (预测的纬度, 经度, 海拔)
+        dropout     (float): GRU 层间 dropout 概率，默认 0.0 (禁用)。
+                             仅当 num_layers >= 2 时生效 (PyTorch 规范)。
+                             纯 GRU 默认保持 0.0，保证原始复现结果不变；
+                             意图增广版可传正值缓解过拟合。
     """
 
     def __init__(
@@ -37,6 +41,7 @@ class UAVTrajectoryGRU(nn.Module):
         hidden_size: int = 64,
         num_layers: int = 2,
         output_size: int = 3,
+        dropout: float = 0.0,
     ):
         super(UAVTrajectoryGRU, self).__init__()
 
@@ -45,6 +50,7 @@ class UAVTrajectoryGRU(nn.Module):
         self.hidden_size = hidden_size
         self.num_layers = num_layers
         self.output_size = output_size
+        self.dropout = float(dropout)
 
         # ---------------------------------------------------------------
         # GRU 层
@@ -54,11 +60,15 @@ class UAVTrajectoryGRU(nn.Module):
         # - num_layers=2:      堆叠 2 层 GRU
         # - batch_first=True:  输入张量形状为 (batch_size, seq_len, input_size)
         #                      而非默认的 (seq_len, batch_size, input_size)
+        # - dropout:           仅当 num_layers >= 2 时才会生效；单层时 PyTorch
+        #                      会给出警告，因此此处自动在单层情况下置零
+        effective_dropout = self.dropout if self.num_layers > 1 else 0.0
         self.gru = nn.GRU(
             input_size=self.input_size,
             hidden_size=self.hidden_size,
             num_layers=self.num_layers,
             batch_first=True,
+            dropout=effective_dropout,
         )
 
         # ---------------------------------------------------------------
