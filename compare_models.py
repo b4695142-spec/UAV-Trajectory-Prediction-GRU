@@ -149,9 +149,26 @@ def _compute_metrics(Y_pred: np.ndarray, Y_true: np.ndarray) -> Dict:
         "max_euclidean": float(np.max(euc)),
         "p95_euclidean": float(np.percentile(euc, 95)),
         "p99_euclidean": float(np.percentile(euc, 99)),
-        "n_outliers_over_p95_pure": int(0),   # 占位，后续比较时重新算
         "euclidean_errors": euc,              # 用于绘图
     }
+
+
+def _apply_outlier_counts_vs_pure_p95(pure_m: Dict, intent_m: Dict) -> None:
+    """
+    以「纯 GRU」在对齐样本上的 P95 三维欧氏误差为阈值：
+    - pure_m：统计纯 GRU 自身超过该阈值的样本数（约尾部 5%，因并列值可能略有偏差）
+    - intent_m：统计意图版在**同一阈值**下超过的样本数（用于对比尾部是否被压低）
+    """
+    e_p = pure_m["euclidean_errors"]
+    e_i = intent_m["euclidean_errors"]
+    n = min(len(e_p), len(e_i))
+    if n == 0:
+        pure_m["n_outliers_over_p95_pure"] = 0
+        intent_m["n_outliers_over_p95_pure"] = 0
+        return
+    thr = float(np.percentile(e_p[:n], 95))
+    pure_m["n_outliers_over_p95_pure"] = int(np.sum(e_p[:n] > thr))
+    intent_m["n_outliers_over_p95_pure"] = int(np.sum(e_i[:n] > thr))
 
 
 # ============================================================================
@@ -253,19 +270,25 @@ def print_metrics_table(pure_m: Dict, intent_m: Dict):
         ("Max  3D Euclidean",    "max_euclidean",   " m"),  # ← 离群值
         ("P95  3D Euclidean",    "p95_euclidean",   " m"),
         ("P99  3D Euclidean",    "p99_euclidean",   " m"),
+        ("> 纯 GRU P95 样本数",  "n_outliers_over_p95_pure", ""),
     ]
 
     for name, key, unit in rows:
         pure_v = pure_m[key]
         int_v = intent_m[key]
-        delta = diff_pct(pure_v, int_v)
+        delta = diff_pct(float(pure_v), float(int_v))
         better = "↓" if delta < 0 else ("↑" if delta > 0 else "=")
-        print(f"{name:<24s}  {fmt(pure_v, unit):>16s}  "
-              f"{fmt(int_v, unit):>16s}  {delta:+11.2f}% {better}")
+        if key == "n_outliers_over_p95_pure":
+            pure_s = f"{int(pure_v):>16d}"
+            int_s = f"{int(int_v):>16d}"
+        else:
+            pure_s = f"{fmt(pure_v, unit):>16s}"
+            int_s = f"{fmt(int_v, unit):>16s}"
+        print(f"{name:<24s}  {pure_s}  {int_s}  {delta:+11.2f}% {better}")
 
     print("=" * 78)
     print("  说明: '变化 (%)' 为 [意图版 vs 纯 GRU]，负号 = 误差下降 = 效果更好。")
-    print("        Max / P95 / P99 欧氏距离反映长视距下离群值抑制效果。")
+    print("        Max / P95 / P99 欧氏距离与「> 纯 GRU P95 样本数」反映离群尾部抑制效果。")
     print("  【公平性修正】两条管线均使用 train-only scaler, dropout=0.0, SVM OOF 概率")
     print()
 
@@ -407,6 +430,7 @@ def main():
 
     pure_m = _compute_metrics(pure_pred, pure_true)
     intent_m = _compute_metrics(intent_pred, intent_true)
+    _apply_outlier_counts_vs_pure_p95(pure_m, intent_m)
 
     print_metrics_table(pure_m, intent_m)
 
