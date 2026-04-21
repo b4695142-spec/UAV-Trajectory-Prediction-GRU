@@ -9,6 +9,7 @@
 ## 🚀 项目亮点
 
 - **完整序列工程**：涵盖从原始 GPS 数据清洗、降采样、归一化到滑动窗口构建的全流程。
+- **公平性保障**：所有管线均采用"先切分再归一化"策略，MinMaxScaler 仅在训练集上 fit，杜绝测试集信息泄漏。
 - **高性能 GRU 架构**：采用双层叠加的 GRU 网络，具备更强的时序特征捕捉能力。
 - **精准评估体系**：除常规 MSE 损失外，还计算了物理含义明确的 MAE、RMSE、Average RMSE 以及 **3D 空间欧氏距离误差**。
 - **三维度可视化**：
@@ -44,7 +45,7 @@ UAV-Trajectory-Prediction-GRU/
 └── inference_time_plot.png       # [输出] 单次预测耗时折线图
 ```
 
-> **注意**：`Log Files/` 目录及 `OnboardGPS.csv` 需自行下载并放置；`processed_data/` 目录及所有 `.npy`、`.npz`、`.pth` 文件由脚本自动生成，已被 `.gitignore` 忽略。
+> **注意**：`Log Files/` 目录及 `OnboardGPS.csv` 需自行下载并放置；`processed_data/` 目录及所有 `.npy`、`.npz`、`.pth`、`.pkl` 文件由脚本自动生成，已被 `.gitignore` 忽略。
 
 ---
 
@@ -61,7 +62,7 @@ pip install torch numpy pandas scikit-learn matplotlib
 | `torch` | GRU 模型构建、训练与推理 | `gru_model.py`, `train.py`, `visualize.py` |
 | `numpy` | 数组运算与数据存储 | 全部模块 |
 | `pandas` | CSV 读取与数据清洗 | `preprocess_uav.py` |
-| `scikit-learn` | MinMaxScaler 归一化 | `preprocess_uav.py` |
+| `scikit-learn` | MinMaxScaler / StandardScaler 归一化、RF、SVM | `preprocess_uav.py`, `prepare_intent.py` |
 | `matplotlib` | 3D/2D 可视化绘图 | `visualize.py` |
 
 ---
@@ -78,9 +79,11 @@ python preprocess_uav.py
 - **处理逻辑**：
     1. 提取核心位置特征 `lat, lon, alt`（丢弃速度、航向、精度等非位置参数）
     2. 等间隔降采样：~30Hz → **10Hz**（每 3 个点保留 1 个，目标间隔 0.1s）
-    3. Min-Max 归一化：将纬度/经度/海拔映射至 [0, 1] 区间
-    4. 按时间顺序 80:20 切分训练集/测试集（**不打乱数据**）
+    3. 按时间顺序 80:20 切分训练集/测试集（**不打乱数据**）
+    4. Min-Max 归一化：将纬度/经度/海拔映射至 [0, 1] 区间（**仅在训练集上 fit**，消除数据泄漏）
 - **输出**：`processed_data/train_data.npy`、`processed_data/test_data.npy`、`processed_data/scaler_params.npz`
+
+> **公平性修正**：当前版本先切分再归一化，MinMaxScaler 仅在训练集上 fit 后 transform 测试集，避免测试集的 min/max 信息泄漏到归一化参数中。
 
 ### 2. 构造序列数据
 ```bash
@@ -132,7 +135,7 @@ python visualize.py
 ```
 输入 (batch_size, 50, 3)
     ↓
-GRU × 2 层 (hidden_size=64, batch_first=True)
+GRU × 2 层 (hidden_size=64, batch_first=True, dropout=0.0)
     ↓  ← 取最后一个时间步的隐藏状态 gru_out[:, -1, :]
 Linear (64 → 3)
     ↓  ← 无激活函数，线性回归投影
@@ -144,6 +147,7 @@ Linear (64 → 3)
 | 输入维度 | 3 (纬度, 经度, 海拔) |
 | GRU 隐藏层维度 | 64 |
 | GRU 堆叠层数 | 2 |
+| GRU 层间 Dropout | 0.0 (纯 GRU 禁用；意图增广版可传正值缓解过拟合) |
 | 输出维度 | 3 (预测纬度, 经度, 海拔) |
 | 权重初始化 | Xavier Uniform (Glorot) |
 | 偏置初始化 | 全零 |
@@ -199,6 +203,7 @@ Linear (64 → 3)
 
 - **数据集放置**：运行步骤 1 前，需将 `OnboardGPS.csv` 放置于 `Log Files/` 目录下。该文件来自 UMAV 数据集，需自行下载。
 - **时序切分**：本项目为连续时间序列任务，训练集/测试集严格按时间顺序划分，**不可使用随机打乱切分**。
+- **归一化公平性**：当前版本先切分再归一化（仅在训练集上 fit MinMaxScaler），杜绝测试集信息泄漏。请勿将顺序改回"先归一化再切分"。
 - **原始数据列名**：`OnboardGPS.csv` 中时间戳列名拼写为 `Timpstemp`（原始数据的拼写错误），代码已做兼容处理。
 - **中文字体**：可视化脚本已内置跨平台中文字体自动检测机制（支持 Windows/Linux/macOS），运行时会自动选择系统中可用的中文字体。若系统中未安装任何候选中文字体，程序会打印警告但不会中断运行，图表中的中文可能显示为方块，建议安装对应平台的常用中文字体。
 - **GPU 加速**：训练与推理脚本自动检测 CUDA 设备。在 GPU 环境下推理耗时会显著降低。
@@ -220,48 +225,74 @@ Linear (64 → 3)
     ├──► 派生运动学特征 (h_speed, heading_rate, alt_rate, h_accel, climb_angle, …)
     │
     ▼
-StandardScaler (train fit → all transform)
+分组归一化 (方案 D):
+    位置列 (lat, lon, alt)  →  MinMaxScaler [0,1] (仅 train fit)
+    其他列                  →  StandardScaler       (仅 train fit)
     │
-    ▼
-Random Forest 特征重要性评估  →  保留累计贡献率 ≥ 80% 的核心特征
-    │
-    ▼
+    ├──► [位置子矩阵] ──────────────────────────────────────┐
+    │                                                        │
+    ▼                                                        │
+Random Forest 特征重要性评估 (方案 C: 排除标签生成特征)       │
+    →  保留累计贡献率 ≥ 80% 的核心特征                        │
+    │                                                        │
+    ▼                                                        │
 OvA SVM (RBF 核, C=5, γ=0.01, probability=True / Platt Scaling)
+    │   训练集概率: 5-Fold OOF 生成 (方案 F: 消除分布偏移)
+    │   测试集概率: 最终模型 out-of-sample 推理
     │                                                        │
     │   4 维概率向量  (0-平飞, 1-转弯, 2-爬升, 3-俯冲)       │
     ▼                                                        │
-[筛选后的标准化特征]  ⊕  [4 维意图概率]  ──────────────┐     │
-                                                        ▼     ▼
-                                         UAVTrajectoryGRU (input_size 动态自适应)
+[位置列 ∪ RF 筛选列]  ⊕  [4 维意图概率]  ─────────────┐     │
+    (方案 A: 位置列始终保留, 不受 RF 取舍)               ▼     ▼
+                                         UAVTrajectoryGRU (input_size 动态自适应, dropout=0.0)
                                                         │
                                                         ▼
                                               (lat, lon, alt) 预测
 ```
+
+### 公平性修正 (A-F)
+
+为确保纯 GRU 与 GRU+意图的对比实验公平性，本管线实施了以下 6 项修正：
+
+| 编号 | 修正项 | 说明 |
+|------|--------|------|
+| **A** | 位置列强制保留 | `lat, lon, alt` 始终保留在 GRU 输入中，不受 RF 筛选影响，防止位置信息丢失 |
+| **B** | RF 阈值语义修正 | RF 累计阈值保持 0.80 (符合论文)，但作用于排除泄漏列后的候选池，语义更健康 |
+| **C** | 排除标签生成特征 | 从 RF 候选池中剔除 `alt_rate` / `heading_rate`（标签生成所用的特征），防止数据泄漏压垮 RF 重要性分布 |
+| **D** | 分组归一化 | 位置列走 MinMaxScaler (与目标对齐)，其他列走 StandardScaler，避免归一化策略混用导致数值不一致 |
+| **E** | MinMax 仅 train fit | MinMaxScaler 仅在训练集上 fit (与修正后的纯 GRU 管线一致)，杜绝测试集信息泄漏 |
+| **F** | SVM OOF 概率 | 训练集的 SVM 概率通过 5-Fold OOF (out-of-fold) 生成，与测试集的 out-of-sample 推理分布一致，消除 covariate shift |
 
 ### 新增目录结构 (与原管线完全隔离)
 
 ```text
 UAV-Trajectory-Prediction-GRU/
 ├── intent/                             # [新增] 意图识别模块 (Python 包)
+│   ├── __init__.py                     # 模块入口, 统一导出公共接口
 │   ├── feature_extractor.py            # 动态提取 OnboardGPS 特征 + 派生运动学特征
 │   ├── label_generator.py              # 基于 alt_rate/heading_rate 自动生成 4 类伪标签
-│   ├── rf_selector.py                  # RF 特征重要性 + 累计 80% 筛选
-│   ├── svm_classifier.py               # OvA + Platt Scaling 的 SVM 封装
-│   └── intent_dataset.py               # 拼接概率向量的滑动窗口构造工具
-├── prepare_intent.py                   # [新增] 步骤 1.5: 意图数据准备 (StandardScaler / RF / SVM / 滑动窗口)
-├── train_with_intent.py                # [新增] 训练增广版 GRU (复用 UAVTrajectoryGRU 类)
+│   ├── rf_selector.py                  # RF 特征重要性 + 累计 80% 筛选 (支持排除泄漏列)
+│   ├── svm_classifier.py               # OvA + Platt Scaling 的 SVM 封装 (含 K-Fold OOF)
+│   └── intent_dataset.py               # 拼接概率向量的滑动窗口构造工具 (numpy版 + PyTorch Dataset版)
+├── prepare_intent.py                   # [新增] 步骤 1.5: 意图数据准备 (分组归一化 / RF / SVM OOF / 滑动窗口)
+├── train_with_intent.py                # [新增] 训练增广版 GRU (复用 UAVTrajectoryGRU 类, dropout=0.0)
 ├── visualize_with_intent.py            # [新增] 增广版推理与可视化
-├── compare_models.py                   # [新增] 纯 GRU vs GRU+意图 对比评估
+├── compare_models.py                   # [新增] 纯 GRU vs GRU+意图 对比评估 (公平性修正版)
 ├── processed_data/
 │   └── intent/                         # [自动生成] 增广版产物目录 (与纯 GRU 完全隔离)
 │       ├── X_train_intent.npy / Y_train_intent.npy
 │       ├── X_test_intent.npy  / Y_test_intent.npy
-│       ├── std_scaler.pkl / rf_model.pkl / svm_model.pkl
-│       ├── selected_indices.npy / rf_importances.npy
+│       ├── std_scaler.pkl              # StandardScaler (非位置列, 仅 train fit)
+│       ├── position_minmax_scaler.pkl  # MinMaxScaler (位置列, 仅 train fit)
+│       ├── rf_model.pkl               # 随机森林模型
+│       ├── svm_model.pkl              # OvA SVM 模型
+│       ├── selected_indices.npy        # 最终 GRU 输入特征索引 (位置列 ∪ RF 筛选列)
+│       ├── rf_selected_indices.npy     # RF 筛选列索引 (不含位置列)
+│       ├── rf_importances.npy          # 完整特征重要性数组
 │       ├── labels_train.npy / labels_test.npy
-│       ├── minmax_scaler_params.npz
+│       ├── minmax_scaler_params.npz    # 目标 (lat,lon,alt) 的 MinMax 参数
 │       ├── best_gru_model_intent.pth
-│       └── intent_report.json          # 特征名 / RF 重要性 / SVM 指标 / 标签分布等汇总
+│       └── intent_report.json          # 特征名 / RF 重要性 / SVM 指标 / 标签分布 / 公平性修正版本等汇总
 └── (compare_*.png / compare_metrics.json 对比评估输出)
 ```
 
@@ -275,19 +306,20 @@ UAV-Trajectory-Prediction-GRU/
 ```bash
 python prepare_intent.py
 ```
-- 动态读取 `Log Files/OnboardGPS.csv`，提取 **10 个** 基础数值列 + **7 个** 派生运动学特征 (自动剔除零方差列)
-- `StandardScaler` 标准化 (仅在训练集上 fit，测试集 transform)
+- 动态读取 `Log Files/OnboardGPS.csv`，提取基础数值列 + **7 个** 派生运动学特征 (自动剔除零方差列)
+- **分组归一化** (方案 D)：位置列 (lat, lon, alt) 使用 MinMaxScaler，其他列使用 StandardScaler，均仅在训练集上 fit
 - 基于 `alt_rate / heading_rate` 启发式阈值 (自适应分位数) 生成 4 类机动伪标签
-- `RandomForestClassifier` (n=200, class_weight='balanced') 拟合 → 按 **累计 80%** 贡献率筛选核心特征
-- `OneVsRestClassifier(SVC(kernel='rbf', C=5, gamma=0.01, probability=True))` 训练并做全量概率推理
-- 构建 **增广滑动窗口**：每个时间步特征 = `[筛选后的标准化特征, 4 维意图概率]`
+- `RandomForestClassifier` (n=200, class_weight='balanced') 拟合 → **排除标签生成特征** (方案 C) 后按 **累计 80%** 贡献率筛选核心特征
+- 位置列强制保留 (方案 A)：最终 GRU 特征 = 位置列 ∪ RF 筛选列
+- `OneVsRestClassifier(SVC(kernel='rbf', C=5, gamma=0.01, probability=True))` 训练 → 训练集概率通过 **5-Fold OOF** 生成 (方案 F)，测试集概率由最终模型推理
+- 构建 **增广滑动窗口**：每个时间步特征 = `[位置列(MinMax) ∪ RF筛选列(StdScale), 4 维意图概率]`；Y 仍为 MinMax 归一化后的 (lat, lon, alt)
 - 所有产物保存至 `processed_data/intent/`
 
 #### 1.6 训练增广版 GRU
 ```bash
 python train_with_intent.py
 ```
-- 自动读取 `X_train_intent.npy` 的最后一维作为 `input_size` (= 筛选特征数 + 4)，其他超参数与 `train.py` 严格一致以保证对比公平
+- 自动读取 `X_train_intent.npy` 的最后一维作为 `input_size` (= 位置列数 + RF 筛选特征数 + 4)，其他超参数 (hidden_size=64, num_layers=2, dropout=0.0, batch_size=70, lr=1e-3, patience=15) 与 `train.py` 严格一致以保证对比公平
 - 最佳模型保存至 `processed_data/intent/best_gru_model_intent.pth`
 
 #### 1.7 增广版推理与可视化
@@ -295,19 +327,23 @@ python train_with_intent.py
 python visualize_with_intent.py
 ```
 - 输出：`trajectory_3d_plot_intent.png` / `trajectory_2d_error_intent.png` / `inference_time_plot_intent.png`
-- 除均值指标外，增加 **Max / P95 / P99 欧氏距离** 专用于评估长视距离群值
+- 除均值指标外，增加 **Max / P95 欧氏距离** 专用于评估长视距离群值
 
 #### 1.8 对比评估 (关键步骤)
 ```bash
 python compare_models.py
 ```
 - 在 **同一测试集** 上同时推理纯 GRU 与 GRU+意图模型
-- 输出定量指标对比表 (含"变化 %"一栏直观展示改进效果)
+- 输出定量指标对比表 (含"变化 %"一栏直观展示改进效果)，指标包括：
+    - 各维度 MAE / RMSE
+    - Average RMSE
+    - Mean / Median / Max / P95 / P99 3D 欧氏距离
+    - "> 纯 GRU P95 样本数" (以纯 GRU 的 P95 误差为阈值，统计两个模型超过该阈值的样本数，直接反映离群尾部抑制效果)
 - 生成三张对比图：
-    - `compare_2d_error.png`：误差时序曲线叠加图 (红: 纯 GRU, 橙: GRU+意图)，自动高亮"纯 GRU 离群区"
+    - `compare_2d_error.png`：误差时序曲线叠加图 (红: 纯 GRU, 橙: GRU+意图)，自动高亮"纯 GRU 离群区" (> P95)
     - `compare_3d_trajectory.png`：三维轨迹三方对比 (真值 vs 纯 GRU vs GRU+意图)
     - `compare_error_cdf.png`：误差直方图 + 累计分布函数 (CDF)，用于量化离群值尾部分布差异
-- 汇总 JSON：`compare_metrics.json`
+- 汇总 JSON：`compare_metrics.json`（含 `fairness_corrections` 字段记录公平性修正信息）
 
 ### 配置参数速查 (意图模块)
 
@@ -316,18 +352,24 @@ python compare_models.py
 | `prepare_intent.py :: RF_N_ESTIMATORS` | 200 | 随机森林决策树数量 |
 | `prepare_intent.py :: RF_CRITERION` | `"gini"` | 可改为 `"entropy"` (信息增益) |
 | `prepare_intent.py :: RF_CUMULATIVE_THRESHOLD` | 0.80 | 累计贡献率阈值 (论文要求 80%) |
+| `prepare_intent.py :: RF_RANDOM_STATE` | 42 | RF 随机种子 |
 | `prepare_intent.py :: SVM_C` | 5.0 | SVM 惩罚因子 |
 | `prepare_intent.py :: SVM_GAMMA` | 0.01 | RBF 核参数 |
 | `prepare_intent.py :: SVM_KERNEL` | `"rbf"` | 高斯核 (可换 linear/poly 等) |
+| `prepare_intent.py :: SVM_N_CLASSES` | 4 | 机动类别数 |
+| `prepare_intent.py :: POSITION_COLS` | `["lat", "lon", "alt"]` | 强制保留到 GRU 输入的位置列 (方案 A) |
 | `label_generator.py :: turn_quantile` | 0.75 | 自适应转弯阈值分位数 |
 | `label_generator.py :: climb_quantile` | 0.70 | 自适应爬升/俯冲阈值分位数 |
+| `train_with_intent.py :: DROPOUT` | 0.0 | GRU 层间 Dropout (与纯 GRU 一致, 保证对比公平) |
 
 ### ⚠️ 注意事项
 
 1. **数据集无显式机动标签**：原始 UMAV/AGZ 数据集不含机动分类标注，本实现使用基于 `alt_rate / heading_rate` 的运动学启发式规则自动生成伪标签。这是监督 SVM 训练的必要折中。
 2. **默认自适应阈值**：伪标签阈值默认取数据分位数，避免硬编码值在不同采样率下失效。可在 `label_generator.py` 中手动指定。
-3. **RF 筛选结果与标签生成强相关**：默认伪标签由 `alt_rate / heading_rate` 构造，因此 RF 通常会优先选出这两个特征（符合预期）。若希望 RF 挖掘更多特征，可将 `RF_CUMULATIVE_THRESHOLD` 调高（例如 0.95）或改用信息增益 (`RF_CRITERION="entropy"`)。
-4. **无缝回退至纯 GRU**：本增强管线的所有产物均位于 `processed_data/intent/` 子目录，并不会覆盖任何原始 `.npy` / `.pth` 文件。只需运行 `python train.py` 或 `python visualize.py` 即可回到纯 GRU 版本。
+3. **数据泄漏防护**：`alt_rate` / `heading_rate` 被用于生成伪标签，因此已从 RF 候选池中排除 (方案 C)。若手动绕过此排除机制，RF 将几乎只选出这两列，导致其他特征全被裁掉。
+4. **RF 筛选结果说明**：由于标签由 `alt_rate / heading_rate` 构造，即使排除这两列后，与它们高度相关的派生特征 (如 `h_accel`, `climb_angle`) 仍可能被 RF 优先选出，这属于合理现象。若希望 RF 挖掘更多特征，可将 `RF_CUMULATIVE_THRESHOLD` 调高（例如 0.95）或改用信息增益 (`RF_CRITERION="entropy"`)。
+5. **SVM OOF 概率**：训练集的意图概率通过 5-Fold OOF 生成 (方案 F)，确保 GRU 训练时看到的概率分布与推理时一致。若关闭 OOF 直接用 in-sample 概率，训练集概率会偏乐观，导致 GRU 过拟合。
+6. **无缝回退至纯 GRU**：本增强管线的所有产物均位于 `processed_data/intent/` 子目录，并不会覆盖任何原始 `.npy` / `.pth` 文件。只需运行 `python train.py` 或 `python visualize.py` 即可回到纯 GRU 版本。
 
 ---
 
