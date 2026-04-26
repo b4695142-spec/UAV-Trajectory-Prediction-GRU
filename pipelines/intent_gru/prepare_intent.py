@@ -34,12 +34,35 @@ from __future__ import annotations
 import json
 import os
 import pickle
+import sys
 from typing import List, Tuple
 
 import numpy as np
 from sklearn.metrics import classification_report
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
+from config import (
+    DOWNSAMPLE_FACTOR,
+    FORWARD_LENGTH,
+    LOOK_BACK,
+    ORIGINAL_INTERVAL_S,
+    OUTPUT_DIR,
+    POSITION_COLS,
+    PROJECT_ROOT,
+    RAW_CSV_PATH,
+    RF_CRITERION,
+    RF_CUMULATIVE_THRESHOLD,
+    RF_N_ESTIMATORS,
+    RF_RANDOM_STATE,
+    SVM_C,
+    SVM_GAMMA,
+    SVM_KERNEL,
+    SVM_N_CLASSES,
+    TARGET_INTERVAL_S,
+    TRAIN_RATIO,
+)
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
 from intent import (
     IntentSVMClassifier,
     LABEL_LEAK_FEATURES,
@@ -50,43 +73,6 @@ from intent import (
     generate_maneuver_labels,
     select_features_by_cumulative_importance,
 )
-
-
-# ============================================================================
-# 配置参数
-# ============================================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# 原始数据
-RAW_CSV_PATH = os.path.join(BASE_DIR, "Log Files", "OnboardGPS.csv")
-
-# 时间 / 下采样参数 (与 preprocess_uav.py 完全一致，保证时间轴对齐)
-ORIGINAL_INTERVAL_S = 0.033333
-TARGET_INTERVAL_S = 0.1
-DOWNSAMPLE_FACTOR = round(TARGET_INTERVAL_S / ORIGINAL_INTERVAL_S)   # = 3
-TRAIN_RATIO = 0.8
-
-# 滑动窗口参数 (与 build_sequences.py 保持一致)
-LOOK_BACK = 50
-FORWARD_LENGTH = 0
-
-# RF 特征筛选
-RF_N_ESTIMATORS = 200
-RF_CRITERION = "gini"                   # 可改为 "entropy" (信息增益)
-RF_CUMULATIVE_THRESHOLD = 0.80          # 累计贡献率 80% (严格按论文)
-RF_RANDOM_STATE = 42
-
-# SVM 参数 (严格按照理论参考)
-SVM_C = 5.0
-SVM_GAMMA = 0.01
-SVM_KERNEL = "rbf"
-SVM_N_CLASSES = 4
-
-# 必须保留到 GRU 输入中的"核心位置列" (方案 A) — 不受 RF 筛选影响
-POSITION_COLS = ["lat", "lon", "alt"]
-
-# 目录
-OUTPUT_DIR = os.path.join(BASE_DIR, "processed_data", "intent")
 
 
 # ============================================================================
@@ -274,6 +260,7 @@ def main():
             feature_names=feature_names,
             cumulative_threshold=RF_CUMULATIVE_THRESHOLD,
             kept_indices=rf_kept_indices,
+            leak_feature_names=list(LABEL_LEAK_FEATURES),
             verbose=True,
         )
 

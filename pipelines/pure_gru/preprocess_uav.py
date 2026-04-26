@@ -21,25 +21,14 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import MinMaxScaler
 
-# ============================================================================
-# 配置参数
-# ============================================================================
-# 原始数据文件路径
-DATA_DIR = os.path.dirname(os.path.abspath(__file__))
-RAW_CSV_PATH = os.path.join(DATA_DIR, "Log Files", "OnboardGPS.csv")
-
-# 降采样参数: 原始采样间隔 ≈ 0.033333s (即 ~30Hz)
-# 目标采样间隔 = 0.1s (即 10Hz)
-# 降采样因子 = 0.1 / 0.033333 ≈ 3 (每3个点保留1个)
-ORIGINAL_INTERVAL_S = 0.033333    # 原始时间间隔 (秒)
-TARGET_INTERVAL_S = 0.1           # 目标时间间隔 (秒)
-DOWNSAMPLE_FACTOR = round(TARGET_INTERVAL_S / ORIGINAL_INTERVAL_S)  # = 3
-
-# 训练集 / 测试集比例
-TRAIN_RATIO = 0.8
-
-# 输出目录
-OUTPUT_DIR = os.path.join(DATA_DIR, "processed_data")
+from config import (
+    DOWNSAMPLE_FACTOR,
+    ORIGINAL_INTERVAL_S,
+    OUTPUT_DIR,
+    RAW_CSV_PATH,
+    TARGET_INTERVAL_S,
+    TRAIN_RATIO,
+)
 
 
 def load_raw_data(csv_path: str) -> pd.DataFrame:

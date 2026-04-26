@@ -41,7 +41,29 @@ import numpy as np
 import torch
 from matplotlib.font_manager import FontManager
 
-from gru_model import UAVTrajectoryGRU
+from config import (
+    HIDDEN_SIZE,
+    INTENT_DROPOUT,
+    INTENT_MODEL,
+    INTENT_SCALER,
+    INTENT_X_TEST,
+    INTENT_Y_TEST,
+    NUM_LAYERS,
+    OUT_CMP_3D,
+    OUT_CMP_CDF,
+    OUT_CMP_ERR,
+    OUT_METRICS,
+    OUTPUT_SIZE,
+    PURE_INPUT_SIZE,
+    PURE_MODEL,
+    PURE_SCALER,
+    PURE_X_TEST,
+    PURE_Y_TEST,
+    PROJECT_ROOT,
+)
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+from core.gru_model import UAVTrajectoryGRU
 
 
 # ============================================================================
@@ -65,39 +87,6 @@ def setup_chinese_font():
 
 
 setup_chinese_font()
-
-
-# ============================================================================
-# 路径配置
-# ============================================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-PURE_DIR = os.path.join(BASE_DIR, "processed_data")
-INTENT_DIR = os.path.join(BASE_DIR, "processed_data", "intent")
-
-# 纯 GRU 产物
-PURE_X_TEST = os.path.join(PURE_DIR, "X_test.npy")
-PURE_Y_TEST = os.path.join(PURE_DIR, "Y_test.npy")
-PURE_MODEL = os.path.join(PURE_DIR, "best_gru_model.pth")
-PURE_SCALER = os.path.join(PURE_DIR, "scaler_params.npz")
-
-# 意图增广产物
-INTENT_X_TEST = os.path.join(INTENT_DIR, "X_test_intent.npy")
-INTENT_Y_TEST = os.path.join(INTENT_DIR, "Y_test_intent.npy")
-INTENT_MODEL = os.path.join(INTENT_DIR, "best_gru_model_intent.pth")
-INTENT_SCALER = os.path.join(INTENT_DIR, "minmax_scaler_params.npz")
-
-# 输出
-OUT_CMP_ERR = os.path.join(BASE_DIR, "compare_2d_error.png")
-OUT_CMP_3D = os.path.join(BASE_DIR, "compare_3d_trajectory.png")
-OUT_CMP_CDF = os.path.join(BASE_DIR, "compare_error_cdf.png")
-OUT_METRICS = os.path.join(BASE_DIR, "compare_metrics.json")
-
-# 模型超参数 (与训练脚本一致)
-PURE_INPUT_SIZE = 3
-HIDDEN_SIZE = 64
-NUM_LAYERS = 2
-OUTPUT_SIZE = 3
-INTENT_DROPOUT = 0.0
 
 
 # ============================================================================

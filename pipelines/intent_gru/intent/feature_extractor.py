@@ -13,6 +13,20 @@
        航向角速率、高度变化率、水平加速度等特征，以显式暴露机动信息。
     4. 下采样: 与主管线 preprocess_uav.py 保持一致 (每 3 个点保留 1 个)，
        保证时间轴对齐。
+
+主要接口:
+    extract_intent_features(csv_path, downsample_factor, target_interval_s, verbose)
+        从 OnboardGPS.csv 提取完整的意图识别特征矩阵，返回三元组
+        (features, feature_names, df_full)。
+        - features:      np.ndarray, shape (N, n_features), 尚未标准化的特征矩阵
+        - feature_names: list[str], 与 features 列对应的名称
+        - df_full:       pd.DataFrame, 降采样后的完整数据 (含标识符列)
+
+依赖关系:
+    - numpy:   数值计算与数组操作
+    - pandas:  CSV 读取与 DataFrame 处理
+    - os:      文件路径检查
+    - typing:  类型注解 (Tuple)
 ==============================================================================
 """
 

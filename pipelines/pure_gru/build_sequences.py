@@ -21,19 +21,14 @@
 import os
 import numpy as np
 
-# ============================================================================
-# 超参数配置
-# ============================================================================
-LOOK_BACK = 50           # 历史观测步长 (最优值，来源于论文)
-FORWARD_LENGTH = 0       # 未来预测步长 (0 表示预测当前时刻位置，可调)
-
-# 数据路径
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "processed_data")
-TRAIN_DATA_PATH = os.path.join(DATA_DIR, "train_data.npy")
-TEST_DATA_PATH = os.path.join(DATA_DIR, "test_data.npy")
-
-# 输出路径
-OUTPUT_DIR = DATA_DIR
+from config import (
+    DATA_DIR,
+    FORWARD_LENGTH,
+    LOOK_BACK,
+    OUTPUT_DIR,
+    TEST_DATA_PATH,
+    TRAIN_DATA_PATH,
+)
 
 
 def build_sliding_window_sequences(

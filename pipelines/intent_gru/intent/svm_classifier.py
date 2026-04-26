@@ -50,29 +50,27 @@ class IntentSVMClassifier:
         random_state: int = 42,
         n_jobs: int = -1,
         class_weight: Optional[str] = "balanced",
-    ):
-        self.n_classes = n_classes
-        self.C = C
-        self.gamma = gamma
-        self.kernel = kernel
-        self.random_state = random_state
-        self.n_jobs = n_jobs
-        self.class_weight = class_weight
+    ) -> None:
+        self.n_classes: int = n_classes
+        self.C: float = C
+        self.gamma: float = gamma
+        self.kernel: str = kernel
+        self.random_state: int = random_state
+        self.n_jobs: int = n_jobs
+        self.class_weight: Optional[str] = class_weight
 
-        # 基础 SVC + Platt Scaling (probability=True)
         base_svc = SVC(
             C=self.C,
             kernel=self.kernel,
             gamma=self.gamma,
-            probability=True,           # 启用 Platt Scaling
+            probability=True,
             class_weight=self.class_weight,
             random_state=self.random_state,
         )
 
-        # OvA 包装: 对每个类别训练一个 "vs 其余" 的二分类器
-        self.clf = OneVsRestClassifier(base_svc, n_jobs=self.n_jobs)
+        self.clf: OneVsRestClassifier = OneVsRestClassifier(base_svc, n_jobs=self.n_jobs)
 
-        self._is_fitted = False
+        self._is_fitted: bool = False
         self._classes_seen: Optional[np.ndarray] = None
 
     # ---------------------------------------------------------------- #

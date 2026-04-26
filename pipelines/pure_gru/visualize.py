@@ -18,6 +18,25 @@ import torch
 import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontManager
 
+from config import (
+    DATA_DIR,
+    HIDDEN_SIZE,
+    MODEL_PATH,
+    NUM_LAYERS,
+    OUTPUT_2D_ERROR_PATH,
+    OUTPUT_IMG_PATH,
+    OUTPUT_SIZE,
+    OUTPUT_TIME_PATH,
+    PLOT_END,
+    PLOT_START,
+    PROJECT_ROOT,
+    SCALER_PATH,
+    X_TEST_PATH,
+    Y_TEST_PATH,
+)
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+
 
 def setup_chinese_font():
     font_candidates = {
@@ -48,35 +67,7 @@ def setup_chinese_font():
 setup_chinese_font()
 
 
-# 从同目录导入模型类
-from gru_model import UAVTrajectoryGRU
-
-
-# ============================================================================
-# 配置参数
-# ============================================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.join(BASE_DIR, "processed_data")
-
-# 数据路径
-X_TEST_PATH = os.path.join(DATA_DIR, "X_test.npy")
-Y_TEST_PATH = os.path.join(DATA_DIR, "Y_test.npy")
-SCALER_PATH = os.path.join(DATA_DIR, "scaler_params.npz")
-MODEL_PATH = os.path.join(DATA_DIR, "best_gru_model.pth")
-
-# 输出图片路径
-OUTPUT_IMG_PATH = os.path.join(BASE_DIR, "trajectory_3d_plot.png")
-OUTPUT_2D_ERROR_PATH = os.path.join(BASE_DIR, "trajectory_2d_error.png")
-
-# 模型超参数 (与训练时一致)
-INPUT_SIZE = 3
-HIDDEN_SIZE = 64
-NUM_LAYERS = 2
-OUTPUT_SIZE = 3
-
-# 可视化参数: 截取测试集中的连续片段用于绘图
-PLOT_START = 0       # 绘图起始索引
-PLOT_END = None      # 绘图结束索引 (设为 None 时表示绘制到最后所有的点)
+from core.gru_model import UAVTrajectoryGRU
 
 
 # ============================================================================
@@ -427,7 +418,6 @@ def plot_inference_time(model, X_test_tensor) -> None:
     ax.legend(loc="upper right", fontsize=11, framealpha=0.9)
     plt.tight_layout()
     
-    OUTPUT_TIME_PATH = os.path.join(BASE_DIR, "inference_time_plot.png")
     fig.savefig(OUTPUT_TIME_PATH, dpi=300, bbox_inches="tight", pad_inches=0.1)
     print(f"  ✅ 单次预测耗时图已保存: {OUTPUT_TIME_PATH}")
     print()

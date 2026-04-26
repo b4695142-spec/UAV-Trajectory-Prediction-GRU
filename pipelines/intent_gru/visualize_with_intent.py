@@ -24,7 +24,25 @@ import numpy as np
 import torch
 from matplotlib.font_manager import FontManager
 
-from gru_model import UAVTrajectoryGRU
+from config import (
+    DROPOUT,
+    HIDDEN_SIZE,
+    MODEL_PATH,
+    NUM_LAYERS,
+    OUTPUT_2D_ERROR_PATH,
+    OUTPUT_IMG_PATH,
+    OUTPUT_SIZE,
+    OUTPUT_TIME_PATH,
+    PLOT_END,
+    PLOT_START,
+    PROJECT_ROOT,
+    SCALER_PATH,
+    X_TEST_PATH,
+    Y_TEST_PATH,
+)
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+from core.gru_model import UAVTrajectoryGRU
 
 
 # ============================================================================
@@ -51,32 +69,6 @@ def setup_chinese_font():
 
 
 setup_chinese_font()
-
-
-# ============================================================================
-# 路径配置
-# ============================================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-INTENT_DIR = os.path.join(BASE_DIR, "processed_data", "intent")
-
-X_TEST_PATH = os.path.join(INTENT_DIR, "X_test_intent.npy")
-Y_TEST_PATH = os.path.join(INTENT_DIR, "Y_test_intent.npy")
-SCALER_PATH = os.path.join(INTENT_DIR, "minmax_scaler_params.npz")
-MODEL_PATH = os.path.join(INTENT_DIR, "best_gru_model_intent.pth")
-
-OUTPUT_IMG_PATH = os.path.join(BASE_DIR, "trajectory_3d_plot_intent.png")
-OUTPUT_2D_ERROR_PATH = os.path.join(BASE_DIR, "trajectory_2d_error_intent.png")
-OUTPUT_TIME_PATH = os.path.join(BASE_DIR, "inference_time_plot_intent.png")
-
-# 模型超参数 (与训练时一致)
-HIDDEN_SIZE = 64
-NUM_LAYERS = 2
-OUTPUT_SIZE = 3
-DROPOUT = 0.0
-
-# 绘图区间
-PLOT_START = 0
-PLOT_END = None
 
 
 # ============================================================================

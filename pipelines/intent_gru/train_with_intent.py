@@ -16,6 +16,7 @@ UAV 轨迹预测 GRU (意图识别增强版) — 训练脚本
 from __future__ import annotations
 
 import os
+import sys
 import time
 
 import numpy as np
@@ -23,36 +24,25 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from gru_model import UAVTrajectoryGRU
-
-
-# ============================================================================
-# 配置参数
-# ============================================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-INTENT_DIR = os.path.join(BASE_DIR, "processed_data", "intent")
-
-X_TRAIN_PATH = os.path.join(INTENT_DIR, "X_train_intent.npy")
-Y_TRAIN_PATH = os.path.join(INTENT_DIR, "Y_train_intent.npy")
-X_TEST_PATH = os.path.join(INTENT_DIR, "X_test_intent.npy")
-Y_TEST_PATH = os.path.join(INTENT_DIR, "Y_test_intent.npy")
-
-MODEL_SAVE_PATH = os.path.join(INTENT_DIR, "best_gru_model_intent.pth")
-
-# 训练超参数 — 与 train.py 严格一致，确保对比公平
-BATCH_SIZE = 70
-LEARNING_RATE = 1e-3
-MAX_EPOCHS = 500
-PATIENCE = 15
-
-# 模型超参数 — hidden_size / num_layers / output_size 与原模型一致
-# input_size 会根据 X 的最后一维动态确定 (位置 ∪ RF 筛选列 + 4 意图概率)
-HIDDEN_SIZE = 64
-NUM_LAYERS = 2
-OUTPUT_SIZE = 3
-# 【公平性修正】dropout 设为 0.0，与纯 GRU 管线严格一致
-# 确保对比时唯一变量为"是否加入意图特征"，排除正则化差异干扰
-DROPOUT = 0.0
+from config import (
+    BATCH_SIZE,
+    DROPOUT,
+    HIDDEN_SIZE,
+    LEARNING_RATE,
+    MAX_EPOCHS,
+    MODEL_SAVE_PATH,
+    NUM_LAYERS,
+    OUTPUT_SIZE,
+    PATIENCE,
+    PROJECT_ROOT,
+    X_TEST_PATH,
+    X_TRAIN_PATH,
+    Y_TEST_PATH,
+    Y_TRAIN_PATH,
+)
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+from core.gru_model import UAVTrajectoryGRU
 
 
 # ============================================================================

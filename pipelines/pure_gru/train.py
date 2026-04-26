@@ -18,40 +18,33 @@ UAV 轨迹预测 GRU 模型 — 训练与验证脚本
 """
 
 import os
+import sys
 import time
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import TensorDataset, DataLoader
 
-# 从同目录导入模型类
-from gru_model import UAVTrajectoryGRU
-
-
-# ============================================================================
-# 配置参数
-# ============================================================================
-# 数据路径
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "processed_data")
-X_TRAIN_PATH = os.path.join(DATA_DIR, "X_train.npy")
-Y_TRAIN_PATH = os.path.join(DATA_DIR, "Y_train.npy")
-X_TEST_PATH = os.path.join(DATA_DIR, "X_test.npy")
-Y_TEST_PATH = os.path.join(DATA_DIR, "Y_test.npy")
-
-# 模型保存路径
-MODEL_SAVE_PATH = os.path.join(DATA_DIR, "best_gru_model.pth")
-
-# 训练超参数
-BATCH_SIZE = 70          # 批次大小 (严格按文献要求)
-LEARNING_RATE = 1e-3     # Adam 学习率
-MAX_EPOCHS = 500         # 最大训练轮数
-PATIENCE = 15            # 早停耐心值: 连续 15 个 Epoch 无改善则停止
-
-# 模型超参数
-INPUT_SIZE = 3           # 输入特征 (lat, lon, alt)
-HIDDEN_SIZE = 64         # GRU 隐藏层维度
-NUM_LAYERS = 2           # GRU 层数
-OUTPUT_SIZE = 3          # 输出维度 (lat, lon, alt)
+from config import (
+    BATCH_SIZE,
+    DATA_DIR,
+    HIDDEN_SIZE,
+    INPUT_SIZE,
+    LEARNING_RATE,
+    MAX_EPOCHS,
+    MODEL_SAVE_PATH,
+    NUM_LAYERS,
+    OUTPUT_SIZE,
+    PATIENCE,
+    PROJECT_ROOT,
+    X_TEST_PATH,
+    X_TRAIN_PATH,
+    Y_TEST_PATH,
+    Y_TRAIN_PATH,
+)
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+from core.gru_model import UAVTrajectoryGRU
 
 
 # ============================================================================

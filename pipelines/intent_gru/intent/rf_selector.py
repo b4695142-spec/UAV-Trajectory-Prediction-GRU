@@ -26,6 +26,9 @@ def _resolve_exclude_indices(
 ) -> np.ndarray:
     """
     将 `exclude_names` / `exclude_indices` 规范化为一维整数索引数组。
+
+    当 exclude_names 中存在无法在 feature_names 中找到的名称时，
+    会发出 UserWarning 警告，防止拼写错误或特征重命名导致排除静默失败。
     """
     idx_set: set = set()
     if exclude_indices:
@@ -35,9 +38,26 @@ def _resolve_exclude_indices(
                 idx_set.add(idx)
     if exclude_names and feature_names is not None:
         name2idx = {name: i for i, name in enumerate(feature_names)}
+        import warnings
         for name in exclude_names:
             if name in name2idx:
                 idx_set.add(name2idx[name])
+            else:
+                warnings.warn(
+                    f"⚠️  排除特征 '{name}' 在 feature_names 中未找到，"
+                    f"可能存在拼写错误或特征已被重命名。该特征将不会被排除，"
+                    f"请检查 LABEL_LEAK_FEATURES 定义是否与实际特征名一致。",
+                    UserWarning,
+                    stacklevel=3,
+                )
+    elif exclude_names and feature_names is None:
+        import warnings
+        warnings.warn(
+            f"⚠️  指定了 exclude_names={exclude_names} 但未提供 feature_names，"
+            f"无法按名称排除特征。请同时传入 feature_names 参数。",
+            UserWarning,
+            stacklevel=3,
+        )
     return np.array(sorted(idx_set), dtype=np.int64)
 
 
@@ -130,6 +150,7 @@ def select_features_by_cumulative_importance(
     feature_names: List[str],
     cumulative_threshold: float = 0.80,
     kept_indices: Optional[np.ndarray] = None,
+    leak_feature_names: Optional[Sequence[str]] = None,
     verbose: bool = True,
 ) -> Tuple[np.ndarray, List[str], np.ndarray]:
     """
@@ -145,6 +166,9 @@ def select_features_by_cumulative_importance(
         cumulative_threshold:  累计贡献率阈值 (0-1)，默认 0.8 即 80%
         kept_indices:          RF 训练时保留的原始列索引。若为 None，则视为
                                RF 在全部特征上训练 (旧行为)
+        leak_feature_names:    标签生成特征名称列表 (如 LABEL_LEAK_FEATURES)。
+                               若提供，将在筛选完成后验证这些特征确实不在
+                               选中结果中；若发现泄漏特征被选中，抛出 ValueError。
         verbose:               是否打印日志
 
     返回:
@@ -203,5 +227,21 @@ def select_features_by_cumulative_importance(
         print(f"  保留的列索引 (按原顺序): {selected_absolute.tolist()}")
         print(f"  保留的列名称:             {selected_names}")
         print()
+
+    # --- 验证: 确保泄漏特征未出现在筛选结果中 ---
+    if leak_feature_names is not None:
+        selected_set = set(selected_names)
+        leaked = selected_set & set(leak_feature_names)
+        if leaked:
+            raise ValueError(
+                f"🚨 数据泄漏检测失败: 以下标签生成特征出现在 RF 筛选结果中: "
+                f"{sorted(leaked)}。这些特征用于生成伪标签，若被选入 GRU 输入"
+                f"将导致严重数据泄漏。请检查 fit_random_forest() 的 exclude_names "
+                f"参数是否正确传入了 LABEL_LEAK_FEATURES。"
+            )
+        if verbose:
+            print(f"  ✅ 数据泄漏验证通过: {list(leak_feature_names)} "
+                  f"均未出现在筛选结果中")
+            print()
 
     return selected_absolute, selected_names, importances_full
