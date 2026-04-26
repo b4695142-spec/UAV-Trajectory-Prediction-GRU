@@ -9,6 +9,7 @@
 ## 🚀 项目亮点
 
 - **完整序列工程**：涵盖从原始 GPS 数据清洗、降采样、归一化到滑动窗口构建的全流程。
+- **集中化配置管理**：两条管线各自拥有独立的 `config.py`，所有超参数与路径配置集中管理，修改参数只需编辑 `config.py`，无需逐一修改各脚本。
 - **公平性保障**：所有管线均采用"先切分再归一化"策略，MinMaxScaler 仅在训练集上 fit，杜绝测试集信息泄漏。
 - **高性能 GRU 架构**：采用双层叠加的 GRU 网络，具备更强的时序特征捕捉能力。
 - **精准评估体系**：除常规 MSE 损失外，还计算了物理含义明确的 MAE、RMSE、Average RMSE 以及 **3D 空间欧氏距离误差**。
@@ -25,16 +26,22 @@
 UAV-Trajectory-Prediction-GRU/
 ├── core/                                # 核心共享代码
 │   ├── __init__.py                      # 模块初始化 (导出 UAVTrajectoryGRU)
-│   └── gru_model.py                     # GRU 模型类定义 (UAVTrajectoryGRU, 两个管线共用)
+│   ├── gru_model.py                     # GRU 模型类定义 (UAVTrajectoryGRU, 两个管线共用)
+│   └── test_gru_model.py                # 模型结构与前向传播验证脚本
 │
 ├── pipelines/
+│   ├── __init__.py                      # 管线包初始化
 │   ├── pure_gru/                        # 管线 1: 纯 GRU 基线
+│   │   ├── __init__.py                  # 管线包初始化
+│   │   ├── config.py                    # 集中配置 (超参数、路径、可视化参数)
 │   │   ├── preprocess_uav.py            # [步骤1] 数据预处理与归一化
 │   │   ├── build_sequences.py           # [步骤2] 滑动窗口序列构建
 │   │   ├── train.py                     # [步骤3] 模型训练与早停优化
 │   │   └── visualize.py                 # [步骤4] 测试集推理、多维可视化与耗时评估
 │   │
 │   └── intent_gru/                      # 管线 2: 意图增强 GRU (探索性)
+│       ├── __init__.py                  # 管线包初始化
+│       ├── config.py                    # 集中配置 (超参数、路径、可视化参数)
 │       ├── intent/                      # 意图识别子模块 (Python 包)
 │       │   ├── __init__.py              # 模块入口, 统一导出公共接口
 │       │   ├── feature_extractor.py     # 动态提取 OnboardGPS 特征 + 派生运动学特征
@@ -164,9 +171,18 @@ python pipelines/pure_gru/visualize.py
   3. 绘制 3D 轨迹对比图 → `trajectory_3d_plot.png`
   4. 绘制 2D 综合误差折线图 → `trajectory_2d_error.png`
   5. 评估单次预测耗时并绘制折线图 → `inference_time_plot.png`
-- **可视化参数**（可在 `visualize.py` 顶部修改）：
+- **可视化参数**（可在 `config.py` 中修改）：
   - `PLOT_START = 0`：绘图起始索引
   - `PLOT_END = None`：绘图结束索引（`None` 表示绘制全部测试集）
+
+### 5. 模型结构验证 (可选)
+
+```bash
+python core/test_gru_model.py
+```
+
+- 独立验证 `UAVTrajectoryGRU` 模型的结构与前向传播正确性
+- 输出模型结构、总参数量、可训练参数量，并执行一次 dummy 前向传播
 
 ---
 
@@ -214,26 +230,30 @@ Linear (64 → 3)
 
 ## ⚙️ 配置参数速查
 
-各脚本的核心配置参数均定义在文件顶部，可根据需求修改：
+两条管线各自拥有独立的 `config.py`，所有超参数与路径配置集中管理。修改参数时只需编辑对应的 `config.py`，无需逐一修改各脚本。
+
+### 纯 GRU 管线 (`pipelines/pure_gru/config.py`)
 
 
-| 脚本                                      | 参数                    | 默认值      | 说明           |
-| --------------------------------------- | --------------------- | -------- | ------------ |
-| `pipelines/pure_gru/preprocess_uav.py`  | `ORIGINAL_INTERVAL_S` | 0.033333 | 原始采样间隔 (秒)   |
-|                                         | `TARGET_INTERVAL_S`   | 0.1      | 目标采样间隔 (秒)   |
-|                                         | `DOWNSAMPLE_FACTOR`   | 3        | 降采样因子 (自动计算) |
-|                                         | `TRAIN_RATIO`         | 0.8      | 训练集比例        |
-| `pipelines/pure_gru/build_sequences.py` | `LOOK_BACK`           | 50       | 历史观测步长       |
-|                                         | `FORWARD_LENGTH`      | 0        | 未来预测步长       |
-| `pipelines/pure_gru/train.py`           | `BATCH_SIZE`          | 70       | 批次大小         |
-|                                         | `LEARNING_RATE`       | 1e-3     | Adam 学习率     |
-|                                         | `MAX_EPOCHS`          | 500      | 最大训练轮数       |
-|                                         | `PATIENCE`            | 15       | 早停耐心值        |
-|                                         | `HIDDEN_SIZE`         | 64       | GRU 隐藏层维度    |
-|                                         | `NUM_LAYERS`          | 2        | GRU 层数       |
-| `pipelines/pure_gru/visualize.py`       | `PLOT_START`          | 0        | 绘图起始索引       |
-|                                         | `PLOT_END`            | None     | 绘图结束索引       |
-
+| 参数                    | 默认值      | 说明           |
+| --------------------- | -------- | ------------ |
+| `ORIGINAL_INTERVAL_S` | 0.033333 | 原始采样间隔 (秒)   |
+| `TARGET_INTERVAL_S`   | 0.1      | 目标采样间隔 (秒)   |
+| `DOWNSAMPLE_FACTOR`   | 3        | 降采样因子 (自动计算) |
+| `TRAIN_RATIO`         | 0.8      | 训练集比例        |
+| `LOOK_BACK`           | 50       | 历史观测步长       |
+| `FORWARD_LENGTH`      | 0        | 未来预测步长       |
+| `INPUT_SIZE`          | 3        | 输入特征维度       |
+| `HIDDEN_SIZE`         | 64       | GRU 隐藏层维度    |
+| `NUM_LAYERS`          | 2        | GRU 层数       |
+| `OUTPUT_SIZE`         | 3        | 输出维度         |
+| `DROPOUT`             | 0.0      | GRU 层间 Dropout |
+| `BATCH_SIZE`          | 70       | 批次大小         |
+| `LEARNING_RATE`       | 1e-3     | Adam 学习率     |
+| `MAX_EPOCHS`          | 500      | 最大训练轮数       |
+| `PATIENCE`            | 15       | 早停耐心值        |
+| `PLOT_START`          | 0        | 绘图起始索引       |
+| `PLOT_END`            | None     | 绘图结束索引       |
 
 ---
 
@@ -319,6 +339,8 @@ OvA SVM (RBF 核, C=5, γ=0.01, probability=True / Platt Scaling)
 
 ```text
 pipelines/intent_gru/
+├── __init__.py                         # 管线包初始化
+├── config.py                           # 集中配置 (超参数、路径、可视化参数)
 ├── intent/                             # 意图识别子模块 (Python 包)
 │   ├── __init__.py                     # 模块入口, 统一导出公共接口
 │   ├── feature_extractor.py            # 动态提取 OnboardGPS 特征 + 派生运动学特征
@@ -347,7 +369,7 @@ python pipelines/intent_gru/prepare_intent.py
 - 动态读取 `Log Files/OnboardGPS.csv`，提取基础数值列 + **7 个** 派生运动学特征 (自动剔除零方差列)
 - **分组归一化** (方案 D)：位置列 (lat, lon, alt) 使用 MinMaxScaler，其他列使用 StandardScaler，均仅在训练集上 fit
 - 基于 `alt_rate / heading_rate` 启发式阈值 (自适应分位数) 生成 4 类机动伪标签
-- `RandomForestClassifier` (n=200, class_weight='balanced') 拟合 → **排除标签生成特征** (方案 C) 后按 **累计 80%** 贡献率筛选核心特征
+- `RandomForestClassifier` (n=200, criterion=entropy, class_weight='balanced') 拟合 → **排除标签生成特征** (方案 C) 后按 **累计 80%** 贡献率筛选核心特征
 - 位置列强制保留 (方案 A)：最终 GRU 特征 = 位置列 ∪ RF 筛选列
 - `OneVsRestClassifier(SVC(kernel='rbf', C=5, gamma=0.01, probability=True))` 训练 → 训练集概率通过 **5-Fold OOF** 生成 (方案 F)，测试集概率由最终模型推理
 - 构建 **增广滑动窗口**：每个时间步特征 = `[位置列(MinMax) ∪ RF筛选列(StdScale), 4 维意图概率]`；Y 仍为 MinMax 归一化后的 (lat, lon, alt)
@@ -391,21 +413,23 @@ python pipelines/intent_gru/compare_models.py
 
 ### 配置参数速查 (意图模块)
 
+所有参数集中定义于 `pipelines/intent_gru/config.py`，修改时只需编辑该文件。
 
-| 脚本 / 参数                                        | 默认值                     | 说明                                 |
+
+| 参数                                        | 默认值                     | 说明                                 |
 | ---------------------------------------------- | ----------------------- | ---------------------------------- |
-| `prepare_intent.py :: RF_N_ESTIMATORS`         | 200                     | 随机森林决策树数量                          |
-| `prepare_intent.py :: RF_CRITERION`            | `"gini"`                | 可改为 `"entropy"` (信息增益)             |
-| `prepare_intent.py :: RF_CUMULATIVE_THRESHOLD` | 0.80                    | 累计贡献率阈值 (论文要求 80%)                 |
-| `prepare_intent.py :: RF_RANDOM_STATE`         | 42                      | RF 随机种子                            |
-| `prepare_intent.py :: SVM_C`                   | 5.0                     | SVM 惩罚因子                           |
-| `prepare_intent.py :: SVM_GAMMA`               | 0.01                    | RBF 核参数                            |
-| `prepare_intent.py :: SVM_KERNEL`              | `"rbf"`                 | 高斯核 (可换 linear/poly 等)             |
-| `prepare_intent.py :: SVM_N_CLASSES`           | 4                       | 机动类别数                              |
-| `prepare_intent.py :: POSITION_COLS`           | `["lat", "lon", "alt"]` | 强制保留到 GRU 输入的位置列 (方案 A)            |
-| `label_generator.py :: turn_quantile`          | 0.75                    | 自适应转弯阈值分位数                         |
-| `label_generator.py :: climb_quantile`         | 0.70                    | 自适应爬升/俯冲阈值分位数                      |
-| `train_with_intent.py :: DROPOUT`              | 0.0                     | GRU 层间 Dropout (与纯 GRU 一致, 保证对比公平) |
+| `RF_N_ESTIMATORS`         | 200                     | 随机森林决策树数量                          |
+| `RF_CRITERION`            | `"entropy"`                | 信息增益 (可改为 `"gini"`)             |
+| `RF_CUMULATIVE_THRESHOLD` | 0.80                    | 累计贡献率阈值 (论文要求 80%)                 |
+| `RF_RANDOM_STATE`         | 42                      | RF 随机种子                            |
+| `SVM_C`                   | 5.0                     | SVM 惩罚因子                           |
+| `SVM_GAMMA`               | 0.01                    | RBF 核参数                            |
+| `SVM_KERNEL`              | `"rbf"`                 | 高斯核 (可换 linear/poly 等)             |
+| `SVM_N_CLASSES`           | 4                       | 机动类别数                              |
+| `POSITION_COLS`           | `["lat", "lon", "alt"]` | 强制保留到 GRU 输入的位置列 (方案 A)            |
+| `turn_quantile`          | 0.75                    | 自适应转弯阈值分位数                         |
+| `climb_quantile`         | 0.70                    | 自适应爬升/俯冲阈值分位数                      |
+| `DROPOUT`              | 0.0                     | GRU 层间 Dropout (与纯 GRU 一致, 保证对比公平) |
 
 
 ### ⚠️ 注意事项
@@ -413,7 +437,7 @@ python pipelines/intent_gru/compare_models.py
 1. **数据集无显式机动标签**：原始 UMAV/AGZ 数据集不含机动分类标注，本实现使用基于 `alt_rate / heading_rate` 的运动学启发式规则自动生成伪标签。这是监督 SVM 训练的必要折中。
 2. **默认自适应阈值**：伪标签阈值默认取数据分位数，避免硬编码值在不同采样率下失效。可在 `label_generator.py` 中手动指定。
 3. **数据泄漏防护**：`alt_rate` / `heading_rate` 被用于生成伪标签，因此已从 RF 候选池中排除 (方案 C)。若手动绕过此排除机制，RF 将几乎只选出这两列，导致其他特征全被裁掉。
-4. **RF 筛选结果说明**：由于标签由 `alt_rate / heading_rate` 构造，即使排除这两列后，与它们高度相关的派生特征 (如 `h_accel`, `climb_angle`) 仍可能被 RF 优先选出，这属于合理现象。若希望 RF 挖掘更多特征，可将 `RF_CUMULATIVE_THRESHOLD` 调高（例如 0.95）或改用信息增益 (`RF_CRITERION="entropy"`)。
+4. **RF 筛选结果说明**：由于标签由 `alt_rate / heading_rate` 构造，即使排除这两列后，与它们高度相关的派生特征 (如 `h_accel`, `climb_angle`) 仍可能被 RF 优先选出，这属于合理现象。若希望 RF 挖掘更多特征，可将 `RF_CUMULATIVE_THRESHOLD` 调高（例如 0.95）或改用 Gini 不纯度 (`RF_CRITERION="gini"`)。
 5. **SVM OOF 概率**：训练集的意图概率通过 5-Fold OOF 生成 (方案 F)，确保 GRU 训练时看到的概率分布与推理时一致。若关闭 OOF 直接用 in-sample 概率，训练集概率会偏乐观，导致 GRU 过拟合。
 6. **无缝回退至纯 GRU**：本增强管线的所有产物均位于 `processed_data/intent/` 子目录，并不会覆盖任何原始 `.npy` / `.pth` 文件。只需运行 `python pipelines/pure_gru/train.py` 或 `python pipelines/pure_gru/visualize.py` 即可回到纯 GRU 版本。
 

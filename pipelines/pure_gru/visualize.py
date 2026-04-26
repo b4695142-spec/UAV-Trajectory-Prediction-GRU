@@ -19,8 +19,8 @@ import matplotlib.pyplot as plt
 from matplotlib.font_manager import FontManager
 
 from config import (
-    DATA_DIR,
     HIDDEN_SIZE,
+    INPUT_SIZE,
     MODEL_PATH,
     NUM_LAYERS,
     OUTPUT_2D_ERROR_PATH,
