@@ -12,7 +12,6 @@ UAV 轨迹预测 GRU 模型 — 测试集推理与 3D 轨迹可视化
 
 import os
 import sys
-import time
 import numpy as np
 import torch
 import matplotlib.pyplot as plt
@@ -23,10 +22,9 @@ from config import (
     INPUT_SIZE,
     MODEL_PATH,
     NUM_LAYERS,
-    OUTPUT_2D_ERROR_PATH,
+    OUTPUT_IMG_DIR,
     OUTPUT_IMG_PATH,
     OUTPUT_SIZE,
-    OUTPUT_TIME_PATH,
     PLOT_END,
     PLOT_START,
     PROJECT_ROOT,
@@ -122,7 +120,7 @@ def load_and_predict() -> tuple:
     print(f"  ✅ 推理完成! 预测结果形状: {Y_pred.shape}")
     print()
 
-    return Y_pred, Y_test, model, X_test_tensor
+    return Y_pred, Y_test
 
 
 # ============================================================================
@@ -296,134 +294,6 @@ def plot_3d_trajectory(Y_pred_real: np.ndarray, Y_test_real: np.ndarray) -> None
 
 
 # ============================================================================
-# 步骤 4: 2D 综合误差折线图绘制
-# ============================================================================
-def plot_2d_error_chart(Y_pred_real: np.ndarray, Y_test_real: np.ndarray) -> None:
-    """
-    绘制截取片段内，每个时间步的预测点与真实点之间的 3D 欧氏距离真实误差，保存为 2D 折线图。
-    """
-    print("=" * 60)
-    print("  步骤 4: 2D 综合误差折线图绘制")
-    print("=" * 60)
-    
-    plot_end = len(Y_test_real) if PLOT_END is None else PLOT_END
-
-    # 截取绘图片段
-    actual = Y_test_real[PLOT_START:plot_end]
-    predicted = Y_pred_real[PLOT_START:plot_end]
-    
-    # 计算每一个时间步下，真实点与预测点之间的 3D 欧氏距离 (综合误差)
-    real_error = np.sqrt(np.sum((predicted - actual) ** 2, axis=1))
-
-    # 创建 2D 折线图
-    fig, ax = plt.subplots(figsize=(12, 6), dpi=150)
-    
-    time_steps = np.arange(PLOT_START, plot_end)
-    
-    # 红色实线
-    ax.plot(
-        time_steps, real_error,
-        linestyle="-", color="red", linewidth=2.0,
-        label="综合真实误差"
-    )
-
-    # 坐标轴标签与标题
-    ax.set_title(
-        f"GRU 综合预测误差随时间变化曲线", 
-        fontsize=14, fontweight="bold", pad=15
-    )
-    ax.set_xlabel("时间步", fontsize=12, labelpad=10)
-    ax.set_ylabel("综合真实误差", fontsize=12, labelpad=10)
-    
-    # 网格线
-    ax.grid(True, linestyle="--", alpha=0.7)
-    
-    # 图例
-    ax.legend(loc="upper right", fontsize=11, framealpha=0.9)
-
-    plt.tight_layout()
-
-    # 保存图片
-    fig.savefig(OUTPUT_2D_ERROR_PATH, dpi=300, bbox_inches="tight", pad_inches=0.1)
-    print(f"  ✅ 2D 误差折线图已保存: {OUTPUT_2D_ERROR_PATH}")
-    print()
-
-
-# ============================================================================
-# 步骤 5: 单次预测耗时评估及绘图
-# ============================================================================
-def plot_inference_time(model, X_test_tensor) -> None:
-    """
-    评估模型在测试集中样本的单次预测耗时，并将其绘制为折线图。
-    """
-    print("=" * 60)
-    print("  步骤 5: 单次预测耗时评估及绘图")
-    print("=" * 60)
-    
-    # 将模型设置为评估模式
-    model.eval()
-    times = []
-    
-    plot_end = len(X_test_tensor) if PLOT_END is None else PLOT_END
-    X_subset = X_test_tensor[PLOT_START:plot_end]
-    
-    print(f"  正在计算单次预测耗时，共 {len(X_subset)} 个点...")
-    
-    with torch.no_grad():
-        # GPU预热（如果使用 GPU）防止首次推理过慢影响结果
-        _ = model(X_subset[0].unsqueeze(0))
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
-
-        for i in range(len(X_subset)):
-            x = X_subset[i].unsqueeze(0)  # 单个样本，变成 (1, seq_len, features)
-            
-            # 使用高精度计时器
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-            start_t = time.perf_counter()
-            
-            _ = model(x)
-            
-            if torch.cuda.is_available():
-                torch.cuda.synchronize()
-            end_t = time.perf_counter()
-            
-            times.append((end_t - start_t) * 1000)  # 转换为毫秒 (ms)
-            
-    avg_time = np.mean(times)
-    max_time = np.max(times)
-    min_time = np.min(times)
-    
-    print(f"  单次预测耗时 (ms) - 平均: {avg_time:.4f}, 最小: {min_time:.4f}, 最大: {max_time:.4f}")
-    
-    # 绘制耗时折线图
-    fig, ax = plt.subplots(figsize=(12, 6), dpi=150)
-    time_steps = np.arange(PLOT_START, plot_end)
-    
-    ax.plot(
-        time_steps, times,
-        linestyle="-", color="purple", linewidth=1.5,
-        label="单次预测耗时", alpha=0.8
-    )
-    
-    # 绘制平均耗时基准线
-    ax.axhline(avg_time, color='red', linestyle='--', linewidth=1.5, label=f'平均耗时: {avg_time:.4f} ms')
-    
-    ax.set_title("GRU 模型单次预测耗时随时间步变化", fontsize=14, fontweight="bold", pad=15)
-    ax.set_xlabel("时间步", fontsize=12, labelpad=10)
-    ax.set_ylabel("耗时 (毫秒 / ms)", fontsize=12, labelpad=10)
-    
-    ax.grid(True, linestyle="--", alpha=0.7)
-    ax.legend(loc="upper right", fontsize=11, framealpha=0.9)
-    plt.tight_layout()
-    
-    fig.savefig(OUTPUT_TIME_PATH, dpi=300, bbox_inches="tight", pad_inches=0.1)
-    print(f"  ✅ 单次预测耗时图已保存: {OUTPUT_TIME_PATH}")
-    print()
-
-
-# ============================================================================
 # 主函数
 # ============================================================================
 def main():
@@ -431,26 +301,18 @@ def main():
     print("  UAV 轨迹预测 — 测试集推理与 3D/2D 可视化")
     print("▓" * 60 + "\n")
 
-    # 步骤 1: 加载数据 + 推理
-    Y_pred, Y_test, model, X_test_tensor = load_and_predict()
+    os.makedirs(OUTPUT_IMG_DIR, exist_ok=True)
 
-    # 步骤 2: 反归一化并计算完整维度误差
+    Y_pred, Y_test = load_and_predict()
+
     Y_pred_real, Y_test_real = denormalize(Y_pred, Y_test)
 
-    # 步骤 3: 绘制 3D 轨迹对比图
     plot_3d_trajectory(Y_pred_real, Y_test_real)
 
-    # 步骤 4: 绘制 2D 综合误差折线图
-    plot_2d_error_chart(Y_pred_real, Y_test_real)
-    
-    # 步骤 5: 绘制单次预测耗时图
-    plot_inference_time(model, X_test_tensor)
-
     print("▓" * 60)
-    print("  全部任务完成! 正在弹窗显示所有可视化图表...")
+    print("  全部任务完成! 正在弹窗显示可视化图表...")
     print("▓" * 60 + "\n")
-    
-    # 统一在这里弹窗，这样可以同时打开 3D 和 2D 窗口
+
     plt.show()
 
 

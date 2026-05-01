@@ -56,12 +56,8 @@ compare_metrics.json
 # --- 原始数据集 ---
 Log Files/
 
-# --- 可视化结果图片 ---
-*.png
-*.jpg
-*.jpeg
-*.svg
-*.gif
+# --- 可视化与对比输出 ---
+output/
 
 # --- 操作系统文件 ---
 .DS_Store

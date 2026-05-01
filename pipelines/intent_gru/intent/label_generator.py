@@ -36,11 +36,20 @@ MANEUVER_LABEL_MAP = {
 MANEUVER_CLASSES = np.array([0, 1, 2, 3], dtype=np.int64)
 
 # ---------------------------------------------------------------------
-# ⚠️ 数据泄漏警示: 下列特征被用于"启发式生成伪标签"，
-# 如果再把它们喂给 RF 做特征重要性评估，会造成严重数据泄漏
-# (RF 必然只挑出这两列，其他真正有用的特征全被裁掉)。
+# 标签生成特征 (label-source features)
 #
-# 下游 (prepare_intent.py) 应通过 `exclude_indices` 将其排除出 RF 候选池。
+# 下列特征被用于"启发式生成伪标签"。是否将它们排除出 RF / SVM 候选池
+# 由调用方决定 —— 通过 `fit_random_forest(exclude_names=...)` 与
+# `select_features_by_cumulative_importance(leak_feature_names=...)` 的可选
+# 参数控制:
+#
+#   - 排除 (intent_gru/prepare_intent.py): 防止数据泄漏压垮 RF 重要性分布,
+#     RF 才能挑出真正有判别力的"非泄漏"特征。
+#   - 不排除 (attention_bigru/prepare_data.py 默认): 让 SVM 输入与标签定义
+#     保持一致, 接受 SVM 准确率被显著拉高的事实, 用于受控对比。
+#
+# 名称保留为 LABEL_LEAK_FEATURES 仅出于兼容历史代码; 在不排除场景下其
+# 语义等价于 "label-source features"。
 # ---------------------------------------------------------------------
 LABEL_LEAK_FEATURES = ("alt_rate", "heading_rate")
 

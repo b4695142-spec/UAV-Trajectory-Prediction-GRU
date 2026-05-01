@@ -54,14 +54,17 @@ RAW_CSV_PATH = os.path.join(PROJECT_ROOT, "Log Files", "OnboardGPS.csv")
 # 输出路径
 # ============================================================================
 OUTPUT_DIR = INTENT_DIR
-OUTPUT_IMG_PATH = os.path.join(PROJECT_ROOT, "trajectory_3d_plot_intent.png")
-OUTPUT_2D_ERROR_PATH = os.path.join(PROJECT_ROOT, "trajectory_2d_error_intent.png")
-OUTPUT_TIME_PATH = os.path.join(PROJECT_ROOT, "inference_time_plot_intent.png")
+OUTPUT_IMG_DIR = os.path.join(PROJECT_ROOT, "output", "intent_gru")
+OUTPUT_CMP_DIR = os.path.join(PROJECT_ROOT, "output", "comparison")
 
-OUT_CMP_ERR = os.path.join(PROJECT_ROOT, "compare_2d_error.png")
-OUT_CMP_3D = os.path.join(PROJECT_ROOT, "compare_3d_trajectory.png")
-OUT_CMP_CDF = os.path.join(PROJECT_ROOT, "compare_error_cdf.png")
-OUT_METRICS = os.path.join(PROJECT_ROOT, "compare_metrics.json")
+OUTPUT_IMG_PATH = os.path.join(OUTPUT_IMG_DIR, "trajectory_3d_plot_intent.png")
+OUTPUT_2D_ERROR_PATH = os.path.join(OUTPUT_IMG_DIR, "trajectory_2d_error_intent.png")
+OUTPUT_TIME_PATH = os.path.join(OUTPUT_IMG_DIR, "inference_time_plot_intent.png")
+
+OUT_CMP_ERR = os.path.join(OUTPUT_CMP_DIR, "compare_2d_error.png")
+OUT_CMP_3D = os.path.join(OUTPUT_CMP_DIR, "compare_3d_trajectory.png")
+OUT_CMP_CDF = os.path.join(OUTPUT_CMP_DIR, "compare_error_cdf.png")
+OUT_METRICS = os.path.join(OUTPUT_CMP_DIR, "compare_metrics.json")
 
 # ============================================================================
 # 数据预处理参数 (与纯 GRU 管线一致，保证时间轴对齐)

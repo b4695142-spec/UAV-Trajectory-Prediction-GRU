@@ -52,6 +52,7 @@ from config import (
     OUT_CMP_3D,
     OUT_CMP_CDF,
     OUT_CMP_ERR,
+    OUT_CMP_DIR,
     OUT_METRICS,
     OUTPUT_SIZE,
     PURE_INPUT_SIZE,
@@ -407,6 +408,8 @@ def main():
     print("\n" + "▓" * 60)
     print("  UAV 轨迹预测 — 纯 GRU vs GRU+意图 对比评估 (公平性修正版)")
     print("▓" * 60 + "\n")
+
+    os.makedirs(OUT_CMP_DIR, exist_ok=True)
 
     print("  【公平性修正确认】")
     print("    ✅ 两条管线 MinMaxScaler 均仅在训练集上 fit")

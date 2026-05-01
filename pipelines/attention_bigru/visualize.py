@@ -1,15 +1,18 @@
 """
 ==============================================================================
-UAV 轨迹预测 GRU (意图识别增强版) — 推理与可视化
+UAV 轨迹预测 — Attention-Bi-GRU 推理与可视化
 ==============================================================================
-与 visualize.py 功能等价，但从 processed_data/intent/ 加载增广数据集
-与增广模型权重，输出加 `_intent` 后缀的可视化图:
+功能:
+    1. 加载 prepare_data.py 生成的 StandardScaler 归一化测试集 + 训练好的模型权重
+    2. 执行推理 (拆分增广 X 中的结构性特征 / 意图概率)
+    3. ★ 使用 StandardScaler 反归一化 (论文 Equation 8 对应的逆变换)
+       —— 与 pure_gru / intent_gru 使用 MinMaxScaler 反归一化的关键差异
+    4. 绘制 3D 轨迹对比图 / 2D 误差曲线 / 单次推理耗时图
 
-    - trajectory_3d_plot_intent.png
-    - trajectory_2d_error_intent.png
-    - inference_time_plot_intent.png
-
-本脚本不触碰任何纯 GRU 产物。
+输出:
+    - trajectory_3d_plot_attn_bigru.png
+    - trajectory_2d_error_attn_bigru.png
+    - inference_time_plot_attn_bigru.png
 ==============================================================================
 """
 
@@ -24,10 +27,14 @@ import torch
 from matplotlib.font_manager import FontManager
 
 from config import (
+    D_FF,
     DROPOUT,
     HIDDEN_SIZE,
     MODEL_PATH,
-    NUM_LAYERS,
+    N_DEC_LAYERS,
+    N_DECODE_STEPS,
+    N_ENC_LAYERS,
+    N_INTENT,
     OUTPUT_IMG_DIR,
     OUTPUT_IMG_PATH,
     OUTPUT_SIZE,
@@ -38,23 +45,25 @@ from config import (
     X_TEST_PATH,
     Y_TEST_PATH,
 )
+
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
-from core.gru_model import UAVTrajectoryGRU
+from core.attention_bigru_model import AttentionBiGRU
 
 
 # ============================================================================
-# 中文字体配置 (与 visualize.py 一致)
+# 中文字体配置
 # ============================================================================
 def setup_chinese_font():
     font_candidates = {
         'win32': ['SimHei', 'Microsoft YaHei', 'SimSun'],
-        'linux': ['WenQuanYi Micro Hei', 'WenQuanYi Zen Hei', 'Noto Sans CJK SC', 'DejaVu Sans'],
+        'linux': ['WenQuanYi Micro Hei', 'WenQuanYi Zen Hei',
+                  'Noto Sans CJK SC', 'DejaVu Sans'],
         'darwin': ['PingFang SC', 'Heiti TC', 'STHeiti', 'Arial Unicode MS'],
     }
     platform = sys.platform
     if platform not in font_candidates:
-        print(f"⚠️  警告: 未识别的操作系统 '{platform}'，尝试使用默认字体配置")
+        print(f"⚠️  警告: 未识别的操作系统 '{platform}'")
         return
     available_fonts = set(FontManager().get_font_names())
     for font_name in font_candidates[platform]:
@@ -70,71 +79,120 @@ setup_chinese_font()
 
 
 # ============================================================================
-# 推理
+# 步骤 1: 数据 + 模型加载 + 推理
 # ============================================================================
 def load_and_predict() -> tuple:
     print("=" * 60)
-    print("  步骤 1: 数据与模型加载 + 推理 (意图增广版)")
+    print("  步骤 1: 数据与模型加载 + 推理 (Attention-Bi-GRU)")
     print("=" * 60)
 
     for p in (X_TEST_PATH, Y_TEST_PATH, MODEL_PATH, SCALER_PATH):
         if not os.path.exists(p):
             raise FileNotFoundError(
-                f"未找到 {p}\n请先运行:\n  python prepare_intent.py\n  python train_with_intent.py"
+                f"未找到 {p}\n"
+                f"请先运行:\n"
+                f"  python pipelines/attention_bigru/prepare_data.py\n"
+                f"  python pipelines/attention_bigru/train.py"
             )
 
     X_test = np.load(X_TEST_PATH)
     Y_test = np.load(Y_TEST_PATH)
     print(f"  X_test: {X_test.shape}  Y_test: {Y_test.shape}")
 
-    input_size = int(X_test.shape[-1])
-    print(f"  动态 input_size = {input_size}")
+    # 拆分: 最后 N_INTENT 列为 SVM 概率, 其余为结构性特征
+    input_size = X_test.shape[-1] - N_INTENT
+    X_feat_test = X_test[:, :, :-N_INTENT]
+    X_intent_test = X_test[:, :, -N_INTENT:]
+
+    print(f"  动态 input_size = {input_size}, n_intent = {N_INTENT}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"  设备: {device}")
 
-    model = UAVTrajectoryGRU(
+    model = AttentionBiGRU(
         input_size=input_size,
         hidden_size=HIDDEN_SIZE,
-        num_layers=NUM_LAYERS,
         output_size=OUTPUT_SIZE,
+        n_enc_layers=N_ENC_LAYERS,
+        n_dec_layers=N_DEC_LAYERS,
+        d_ff=D_FF,
+        n_intent=N_INTENT,
+        n_decode_steps=N_DECODE_STEPS,
         dropout=DROPOUT,
     )
     model.load_state_dict(torch.load(MODEL_PATH, map_location=device, weights_only=True))
     model.to(device)
     model.eval()
-    print(f"  ✅ 意图增广版模型权重已加载: {MODEL_PATH}")
+    print(f"  ✅ Attention-Bi-GRU 模型权重已加载: {MODEL_PATH}")
 
-    X_test_tensor = torch.tensor(X_test, dtype=torch.float32).to(device)
+    # 张量化 + 推理 (分块以避免单次张量过大)
+    X_feat_t = torch.tensor(X_feat_test, dtype=torch.float32).to(device)
+    X_intent_t = torch.tensor(X_intent_test, dtype=torch.float32).to(device)
+
+    Y_pred_list = []
+    chunk = 512
     with torch.no_grad():
-        Y_pred_tensor = model(X_test_tensor)
-    Y_pred = Y_pred_tensor.cpu().numpy()
+        for i in range(0, len(X_feat_t), chunk):
+            x_f = X_feat_t[i:i + chunk]
+            x_i = X_intent_t[i:i + chunk]
+            out = model(x_f, x_i)
+            # out shape:
+            #   (chunk, output_size)                    当 N_DECODE_STEPS == 1
+            #   (chunk, N_DECODE_STEPS, output_size)    当 N_DECODE_STEPS  > 1
+            Y_pred_list.append(out.cpu().numpy())
+    Y_pred = np.concatenate(Y_pred_list, axis=0)
 
-    print(f"  ✅ 推理完成! Y_pred shape: {Y_pred.shape}\n")
+    print(f"  ✅ 推理完成! Y_pred shape: {Y_pred.shape}  "
+          f"Y_test shape: {Y_test.shape}")
+
+    # ── 多步解码: 仅保留首步用于轨迹图与 2D 误差曲线 ──
+    # 模型输出第 0 步对应 target[t], 与 pure_gru 的预测目标完全对齐;
+    # 后续 4 步是更远视距的预测, 在单管线可视化里展示首步即可保证图像清晰。
+    if N_DECODE_STEPS > 1:
+        if Y_pred.ndim == 3:
+            Y_pred = Y_pred[:, 0, :]
+        if Y_test.ndim == 3:
+            Y_test = Y_test[:, 0, :]
+        print(f"  ℹ️  T_dec={N_DECODE_STEPS}: 仅取首步用于绘图 → "
+              f"Y_pred: {Y_pred.shape}, Y_test: {Y_test.shape}")
+    print()
+
     return Y_pred, Y_test
 
 
 # ============================================================================
-# 反归一化 + 误差指标
+# 步骤 2: StandardScaler 反归一化
 # ============================================================================
-def inverse_transform(data, data_min, data_max):
-    return data * (data_max - data_min) + data_min
+def inverse_standard(data: np.ndarray, mean: np.ndarray, scale: np.ndarray) -> np.ndarray:
+    """
+    StandardScaler 反归一化:  X_original = X_scaled * σ + μ
+
+    参数:
+        data:  归一化后的数据, shape (n, 3)
+        mean:  各特征均值 μ, shape (3,)
+        scale: 各特征标准差 σ, shape (3,)
+
+    返回:
+        反归一化后的真实坐标 (lat, lon, alt), shape (n, 3)
+    """
+    return data * scale + mean
 
 
-def denormalize(Y_pred, Y_test):
+def denormalize(Y_pred: np.ndarray, Y_test: np.ndarray) -> tuple:
+    """加载 StandardScaler 参数, 对预测和真实值执行反归一化, 输出误差指标。"""
     print("=" * 60)
-    print("  步骤 2: 反归一化 + 误差指标")
+    print("  步骤 2: 反归一化 (StandardScaler — 论文 Equation 8 逆变换)")
     print("=" * 60)
 
     params = np.load(SCALER_PATH)
-    data_min = params["data_min"]
-    data_max = params["data_max"]
+    mean = params["mean"]
+    scale = params["scale"]
 
-    print(f"  data_min: {data_min}")
-    print(f"  data_max: {data_max}")
+    print(f"  target μ (mean):  {mean}")
+    print(f"  target σ (scale): {scale}")
 
-    Y_pred_real = inverse_transform(Y_pred, data_min, data_max)
-    Y_test_real = inverse_transform(Y_test, data_min, data_max)
+    Y_pred_real = inverse_standard(Y_pred, mean, scale)
+    Y_test_real = inverse_standard(Y_test, mean, scale)
 
     labels = ["Latitude", "Longitude", "Altitude"]
     mae = np.mean(np.abs(Y_pred_real - Y_test_real), axis=0)
@@ -144,13 +202,14 @@ def denormalize(Y_pred, Y_test):
     mean_euc = float(np.mean(euclid))
     max_euc = float(np.max(euclid))
     p95_euc = float(np.percentile(euclid, 95))
+    p99_euc = float(np.percentile(euclid, 99))
 
-    print(f"\n  [intent 增广版] 各维度 MAE:")
+    print(f"\n  [Attn-Bi-GRU] 各维度 MAE:")
     for i, name in enumerate(labels):
         unit = "°" if i < 2 else "m"
         print(f"    {name:>10}: {mae[i]:.8f} {unit}")
 
-    print(f"\n  [intent 增广版] 各维度 RMSE:")
+    print(f"\n  [Attn-Bi-GRU] 各维度 RMSE:")
     for i, name in enumerate(labels):
         unit = "°" if i < 2 else "m"
         print(f"    {name:>10}: {rmse[i]:.8f} {unit}")
@@ -160,17 +219,18 @@ def denormalize(Y_pred, Y_test):
     print(f"    Mean 3D Euclidean   : {mean_euc:.4f} m")
     print(f"    Max  3D Euclidean   : {max_euc:.4f} m  ← 长视距离群值指标")
     print(f"    P95  3D Euclidean   : {p95_euc:.4f} m")
+    print(f"    P99  3D Euclidean   : {p99_euc:.4f} m")
     print()
 
     return Y_pred_real, Y_test_real
 
 
 # ============================================================================
-# 3D 轨迹绘图
+# 步骤 3: 3D 轨迹对比图
 # ============================================================================
-def plot_3d_trajectory(Y_pred_real, Y_test_real):
+def plot_3d_trajectory(Y_pred_real: np.ndarray, Y_test_real: np.ndarray) -> None:
     print("=" * 60)
-    print("  步骤 3: 3D 轨迹图 (意图增广版)")
+    print("  步骤 3: 3D 轨迹图 (Attention-Bi-GRU)")
     print("=" * 60)
 
     plot_end = len(Y_test_real) if PLOT_END is None else PLOT_END
@@ -184,8 +244,8 @@ def plot_3d_trajectory(Y_pred_real, Y_test_real):
             linestyle="--", color="gray", linewidth=1.5,
             label="实际轨迹", alpha=0.8)
     ax.plot(pred[:, 1], pred[:, 0], pred[:, 2],
-            linestyle="-", color="orange", linewidth=1.5,
-            label="预测轨迹（GRU + 意图）", alpha=0.9)
+            linestyle="-", color="royalblue", linewidth=1.5,
+            label="预测轨迹（Attention-Bi-GRU + 意图）", alpha=0.9)
     ax.scatter(actual[0, 1], actual[0, 0], actual[0, 2],
                color="green", s=80, marker="o", zorder=5, label="起点")
     ax.scatter(actual[-1, 1], actual[-1, 0], actual[-1, 2],
@@ -194,7 +254,7 @@ def plot_3d_trajectory(Y_pred_real, Y_test_real):
     ax.set_xlabel("经度 (°)", fontsize=12, labelpad=10)
     ax.set_ylabel("纬度 (°)", fontsize=12, labelpad=10)
     ax.set_zlabel("高度 (m)", fontsize=12, labelpad=10)
-    ax.set_title("无人机三维轨迹：实际轨迹 vs GRU+意图 预测轨迹",
+    ax.set_title("无人机三维轨迹: 实际轨迹 vs Attention-Bi-GRU + 意图 预测",
                  fontsize=14, fontweight="bold", pad=20)
     ax.legend(loc="upper left", fontsize=10, framealpha=0.9)
     ax.view_init(elev=25, azim=135)
@@ -208,7 +268,7 @@ def plot_3d_trajectory(Y_pred_real, Y_test_real):
 # ============================================================================
 def main():
     print("\n" + "▓" * 60)
-    print("  UAV 轨迹预测 — 意图增广版测试集推理与可视化")
+    print("  UAV 轨迹预测 — Attention-Bi-GRU 测试集推理与可视化")
     print("▓" * 60 + "\n")
 
     os.makedirs(OUTPUT_IMG_DIR, exist_ok=True)
@@ -218,7 +278,7 @@ def main():
     plot_3d_trajectory(Y_pred_real, Y_test_real)
 
     print("▓" * 60)
-    print("  意图增广版可视化完成!")
+    print("  Attention-Bi-GRU 可视化完成!")
     print("▓" * 60 + "\n")
     plt.show()
 
