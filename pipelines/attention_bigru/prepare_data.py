@@ -49,7 +49,6 @@ from config import (
     EXCLUDE_LABEL_LEAK_FEATURES,
     FORWARD_LENGTH,
     LOOK_BACK,
-    N_DECODE_STEPS,
     OUTPUT_DIR,
     POSITION_COLS,
     PROJECT_ROOT,
@@ -351,18 +350,12 @@ def main():
 
     target_train, target_test = _split_by_time(target_all, TRAIN_RATIO)
 
-    print(f"  解码步数 N_DECODE_STEPS = {N_DECODE_STEPS}  "
-          f"(Y 形状: "
-          f"{'(n, 3)' if N_DECODE_STEPS == 1 else f'(n, {N_DECODE_STEPS}, 3)'})")
-    print()
-
     X_train, Y_train = build_augmented_sequences(
         feat_selected=feat_final_train,
         intent_probs=probs_train,
         target=target_train,
         look_back=LOOK_BACK,
         forward_length=FORWARD_LENGTH,
-        decode_steps=N_DECODE_STEPS,
         dataset_name="训练集",
         verbose=True,
     )
@@ -372,7 +365,6 @@ def main():
         target=target_test,
         look_back=LOOK_BACK,
         forward_length=FORWARD_LENGTH,
-        decode_steps=N_DECODE_STEPS,
         dataset_name="测试集",
         verbose=True,
     )
@@ -418,7 +410,6 @@ def main():
         "version": "attn_bigru-v1-standardscaler",
         "look_back": LOOK_BACK,
         "forward_length": FORWARD_LENGTH,
-        "decode_steps": int(N_DECODE_STEPS),
         "downsample_factor": DOWNSAMPLE_FACTOR,
         "train_ratio": TRAIN_RATIO,
         "normalization": {

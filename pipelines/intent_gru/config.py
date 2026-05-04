@@ -60,6 +60,7 @@ OUTPUT_CMP_DIR = os.path.join(PROJECT_ROOT, "output", "comparison")
 OUTPUT_IMG_PATH = os.path.join(OUTPUT_IMG_DIR, "trajectory_3d_plot_intent.png")
 OUTPUT_2D_ERROR_PATH = os.path.join(OUTPUT_IMG_DIR, "trajectory_2d_error_intent.png")
 OUTPUT_TIME_PATH = os.path.join(OUTPUT_IMG_DIR, "inference_time_plot_intent.png")
+LOSS_CURVE_PATH = os.path.join(OUTPUT_IMG_DIR, "loss_curve_intent.png")
 
 OUT_CMP_ERR = os.path.join(OUTPUT_CMP_DIR, "compare_2d_error.png")
 OUT_CMP_3D = os.path.join(OUTPUT_CMP_DIR, "compare_3d_trajectory.png")

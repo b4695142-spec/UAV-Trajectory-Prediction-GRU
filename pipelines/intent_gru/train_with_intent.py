@@ -29,6 +29,7 @@ from config import (
     DROPOUT,
     HIDDEN_SIZE,
     LEARNING_RATE,
+    LOSS_CURVE_PATH,
     MAX_EPOCHS,
     MODEL_SAVE_PATH,
     NUM_LAYERS,
@@ -43,21 +44,19 @@ from config import (
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 from core.gru_model import UAVTrajectoryGRU
+from core.training_utils import (
+    EarlyStopping,
+    evaluate,
+    get_device,
+    init_weights,
+    plot_loss_curves,
+    train_one_epoch,
+)
 
 
 # ============================================================================
 # 工具函数 (从 train.py 复用等价逻辑，保持自包含以方便对比)
 # ============================================================================
-def get_device() -> torch.device:
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        print(f"  使用设备: {torch.cuda.get_device_name(0)} (CUDA)")
-    else:
-        device = torch.device("cpu")
-        print(f"  使用设备: CPU")
-    return device
-
-
 def load_data() -> tuple:
     """加载意图增广数据集。"""
     print("=" * 60)
@@ -99,77 +98,13 @@ def load_data() -> tuple:
     return train_loader, test_loader, input_size
 
 
-def init_weights(model: nn.Module) -> None:
-    """Glorot/Xavier Uniform 权重初始化。"""
-    for name, param in model.named_parameters():
-        if "weight" in name:
-            nn.init.xavier_uniform_(param.data)
-        elif "bias" in name:
-            nn.init.zeros_(param.data)
-
-
-class EarlyStopping:
-    """与 train.py 中一致的 Early Stopping 机制。"""
-
-    def __init__(self, patience: int = 15):
-        self.patience = patience
-        self.best_loss = float("inf")
-        self.best_epoch = 0
-        self.counter = 0
-        self.best_state = None
-        self.early_stop = False
-
-    def __call__(self, val_loss: float, model: nn.Module, epoch: int):
-        if val_loss < self.best_loss:
-            self.best_loss = val_loss
-            self.best_epoch = epoch
-            self.counter = 0
-            self.best_state = {k: v.clone().cpu() for k, v in model.state_dict().items()}
-        else:
-            self.counter += 1
-            if self.counter >= self.patience:
-                self.early_stop = True
-                print(f"\n  ⏹ 早停触发! 连续 {self.patience} 个 Epoch 验证损失无改善。")
-                print(f"    最佳 Epoch: {self.best_epoch}, 最佳 Test Loss: {self.best_loss:.8f}")
-
-
-# ============================================================================
-# 训练 / 验证 (等同于 train.py)
-# ============================================================================
-def train_one_epoch(model, train_loader, criterion, optimizer, device):
-    model.train()
-    total, n = 0.0, 0
-    for X_batch, Y_batch in train_loader:
-        X_batch = X_batch.to(device)
-        Y_batch = Y_batch.to(device)
-        pred = model(X_batch)
-        loss = criterion(pred, Y_batch)
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-        total += loss.item()
-        n += 1
-    return total / n
-
-
-@torch.no_grad()
-def evaluate(model, test_loader, criterion, device):
-    model.eval()
-    total, n = 0.0, 0
-    for X_batch, Y_batch in test_loader:
-        X_batch = X_batch.to(device)
-        Y_batch = Y_batch.to(device)
-        pred = model(X_batch)
-        loss = criterion(pred, Y_batch)
-        total += loss.item()
-        n += 1
-    return total / n
-
-
 def train(model, train_loader, test_loader, device):
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     early_stopping = EarlyStopping(patience=PATIENCE)
+
+    train_losses = []
+    test_losses = []
 
     print("=" * 60)
     print("  开始训练 (意图增广版 GRU)")
@@ -188,6 +123,9 @@ def train(model, train_loader, test_loader, device):
         train_loss = train_one_epoch(model, train_loader, criterion, optimizer, device)
         test_loss = evaluate(model, test_loader, criterion, device)
         early_stopping(test_loss, model, epoch)
+
+        train_losses.append(train_loss)
+        test_losses.append(test_loss)
 
         remark = ""
         if test_loss <= early_stopping.best_loss:
@@ -217,6 +155,14 @@ def train(model, train_loader, test_loader, device):
     os.makedirs(os.path.dirname(MODEL_SAVE_PATH), exist_ok=True)
     torch.save(model.state_dict(), MODEL_SAVE_PATH)
     print(f"  ✅ 最佳模型已保存至: {MODEL_SAVE_PATH}")
+
+    plot_loss_curves(
+        train_losses=train_losses,
+        test_losses=test_losses,
+        best_epoch=early_stopping.best_epoch,
+        save_path=LOSS_CURVE_PATH,
+        title="Intent-Enhanced GRU — 训练损失曲线",
+    )
 
 
 # ============================================================================

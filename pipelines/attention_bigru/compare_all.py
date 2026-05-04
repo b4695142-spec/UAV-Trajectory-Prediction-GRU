@@ -232,18 +232,6 @@ def run_attention_bigru():
     model.to(device)
 
     Y_pred = _infer_attn(model, X_feat_test, X_intent_test, device)
-    # Y_pred shape:
-    #   (n, 3)                    当 N_DECODE_STEPS == 1
-    #   (n, N_DECODE_STEPS, 3)    当 N_DECODE_STEPS  > 1
-    # Y_test 同上 (由 prepare_data.py 按相同 N_DECODE_STEPS 生成)
-    if N_DECODE_STEPS > 1:
-        if Y_pred.ndim == 3:
-            Y_pred = Y_pred[:, 0, :]
-        if Y_test.ndim == 3:
-            Y_test = Y_test[:, 0, :]
-        print(f"  ℹ️  T_dec={N_DECODE_STEPS}: 仅取首步与 pure_gru 对齐 "
-              f"(两者预测目标都是 target[t], 任务定义一致)")
-
     Y_pred_real = _inverse_standard(Y_pred, mean, scale)
     Y_test_real = _inverse_standard(Y_test, mean, scale)
 
@@ -362,9 +350,7 @@ def print_hyperparam_table():
         ("学习率",              "1e-3",              f"{LEARNING_RATE}"),
         ("Batch Size",         "70",                f"{BATCH_SIZE}"),
         ("Max Epochs",         "500",               f"{MAX_EPOCHS}"),
-        ("解码步数 (T_dec)",    "1",
-         (f"{N_DECODE_STEPS} (训练) / 取首步评估"
-          if N_DECODE_STEPS > 1 else f"{N_DECODE_STEPS}")),
+        ("解码步数 (T_dec)",    "1",                 f"{N_DECODE_STEPS}"),
     ]
     for name, pure_v, attn_v in rows:
         print(f"{name:<22s}  {pure_v:>22s}  {attn_v:>22s}")
@@ -550,11 +536,7 @@ def main():
                 "max_epochs": MAX_EPOCHS,
                 "intent_fusion": "每层每步 GeLU + Concat 融合 (论文 Eq.31-32)",
                 "attention": "动态 Seq2Seq 缩放点积 Attention (Q 每步重新计算)",
-                "decode_steps_train": N_DECODE_STEPS,
-                "decode_steps_eval": (
-                    1 if N_DECODE_STEPS == 1
-                    else f"取首步与 pure_gru 对齐 (训练时仍是 {N_DECODE_STEPS} 步)"
-                ),
+                "decode_steps": N_DECODE_STEPS,
             },
         },
         "fairness_notes": {

@@ -37,6 +37,7 @@ from config import (
     DROPOUT,
     HIDDEN_SIZE,
     LEARNING_RATE,
+    LOSS_CURVE_PATH,
     MAX_EPOCHS,
     MODEL_SAVE_PATH,
     N_DEC_LAYERS,
@@ -55,6 +56,14 @@ from config import (
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 from core.attention_bigru_model import AttentionBiGRU
+from core.training_utils import (
+    EarlyStopping,
+    evaluate,
+    get_device,
+    init_weights,
+    plot_loss_curves,
+    train_one_epoch,
+)
 
 
 # ============================================================================
@@ -63,12 +72,9 @@ from core.attention_bigru_model import AttentionBiGRU
 class AttentionBiGRUDataset(Dataset):
     """
     每个样本返回 (x_feat, x_intent, y) 三元组:
-        x_feat   : (look_back, input_size)              结构性特征 (位置 + RF 筛选列)
-        x_intent : (look_back, n_intent)                SVM 概率向量序列
-        y        : (output_size,)        当 decode_steps == 1
-                   (decode_steps, out)   当 decode_steps  > 1
-                   目标 (lat, lon, alt, StandardScaler), 形状由 prepare_data.py
-                   生成的 .npy 决定 (即 N_DECODE_STEPS 配置)。
+        x_feat   : (look_back, input_size)   结构性特征 (位置 + RF 筛选列)
+        x_intent : (look_back, n_intent)     SVM 概率向量序列
+        y        : (output_size,)            目标 (lat, lon, alt, StandardScaler)
     """
 
     def __init__(
@@ -91,16 +97,6 @@ class AttentionBiGRUDataset(Dataset):
 # ============================================================================
 # 工具函数
 # ============================================================================
-def get_device() -> torch.device:
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        print(f"  使用设备: {torch.cuda.get_device_name(0)} (CUDA)")
-    else:
-        device = torch.device("cpu")
-        print(f"  使用设备: CPU")
-    return device
-
-
 def load_data() -> tuple:
     """加载 prepare_data.py 生成的增广数据, 拆分结构性特征与意图概率。"""
     print("=" * 60)
@@ -121,20 +117,6 @@ def load_data() -> tuple:
     print(f"  X_train: {X_train.shape}  Y_train: {Y_train.shape}")
     print(f"  X_test:  {X_test.shape}   Y_test:  {Y_test.shape}")
 
-    # ── Y 形状 / 解码步数一致性校验 ─────────────────────────────────────
-    if N_DECODE_STEPS == 1:
-        if Y_train.ndim != 2:
-            raise ValueError(
-                f"N_DECODE_STEPS=1 但 Y_train 维度为 {Y_train.ndim} (期望 2D); "
-                f"请重新运行 prepare_data.py"
-            )
-    else:
-        if Y_train.ndim != 3 or Y_train.shape[1] != N_DECODE_STEPS:
-            raise ValueError(
-                f"N_DECODE_STEPS={N_DECODE_STEPS} 但 Y_train shape={Y_train.shape} "
-                f"(期望 (n, {N_DECODE_STEPS}, 3)); 请重新运行 prepare_data.py"
-            )
-
     # ── 拆分: 最后 N_INTENT 列为 SVM 概率, 其余为结构性特征 ──
     input_size = X_train.shape[-1] - N_INTENT
     X_feat_train = X_train[:, :, :-N_INTENT]
@@ -144,7 +126,6 @@ def load_data() -> tuple:
 
     print(f"  动态输入维度 input_size = {input_size}  (结构性特征)")
     print(f"  意图概率维度 n_intent  = {N_INTENT}     (SVM 4 维概率)")
-    print(f"  解码步数 T_dec        = {N_DECODE_STEPS}")
 
     train_ds = AttentionBiGRUDataset(X_feat_train, X_intent_train, Y_train)
     test_ds = AttentionBiGRUDataset(X_feat_test, X_intent_test, Y_test)
@@ -163,108 +144,6 @@ def load_data() -> tuple:
     return train_loader, test_loader, input_size
 
 
-def init_weights(model: nn.Module) -> None:
-    """
-    Xavier Uniform 权重初始化。
-
-    策略:
-        - 所有 *.weight (Linear / GRU 的 weight_ih / weight_hh): Xavier Uniform
-        - 所有 *.bias:                                         零
-        - LayerNorm 的 weight: 保持默认 (全 1), 否则会破坏 LayerNorm 数学语义
-    """
-    for name, param in model.named_parameters():
-        if "weight" in name:
-            # LayerNorm 的 weight 必须保持 1, 否则归一化会失效
-            if param.dim() < 2:
-                # 1D 权重 (如 LayerNorm.weight, GRU.bias_ih_*) 跳过 Xavier
-                continue
-            nn.init.xavier_uniform_(param.data)
-        elif "bias" in name:
-            nn.init.zeros_(param.data)
-
-
-# ============================================================================
-# 早停机制
-# ============================================================================
-class EarlyStopping:
-    """与现有管线一致的 Early Stopping 机制。"""
-
-    def __init__(self, patience: int = 15):
-        self.patience = patience
-        self.best_loss = float("inf")
-        self.best_epoch = 0
-        self.counter = 0
-        self.best_state = None
-        self.early_stop = False
-
-    def __call__(self, val_loss: float, model: nn.Module, epoch: int):
-        if val_loss < self.best_loss:
-            self.best_loss = val_loss
-            self.best_epoch = epoch
-            self.counter = 0
-            self.best_state = {
-                k: v.clone().cpu() for k, v in model.state_dict().items()
-            }
-        else:
-            self.counter += 1
-            if self.counter >= self.patience:
-                self.early_stop = True
-                print(f"\n  ⏹ 早停触发! 连续 {self.patience} 个 Epoch 验证损失无改善。")
-                print(f"    最佳 Epoch: {self.best_epoch}, "
-                      f"最佳 Test Loss: {self.best_loss:.8f}")
-
-
-# ============================================================================
-# 训练 / 验证
-# ============================================================================
-def train_one_epoch(
-    model: nn.Module,
-    train_loader: DataLoader,
-    criterion: nn.Module,
-    optimizer: torch.optim.Optimizer,
-    device: torch.device,
-) -> float:
-    model.train()
-    total, n = 0.0, 0
-    for x_feat, x_intent, y in train_loader:
-        x_feat = x_feat.to(device)
-        x_intent = x_intent.to(device)
-        y = y.to(device)
-
-        pred = model(x_feat, x_intent)
-        loss = criterion(pred, y)
-
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        total += loss.item()
-        n += 1
-    return total / max(n, 1)
-
-
-@torch.no_grad()
-def evaluate(
-    model: nn.Module,
-    test_loader: DataLoader,
-    criterion: nn.Module,
-    device: torch.device,
-) -> float:
-    model.eval()
-    total, n = 0.0, 0
-    for x_feat, x_intent, y in test_loader:
-        x_feat = x_feat.to(device)
-        x_intent = x_intent.to(device)
-        y = y.to(device)
-
-        pred = model(x_feat, x_intent)
-        loss = criterion(pred, y)
-
-        total += loss.item()
-        n += 1
-    return total / max(n, 1)
-
-
 def train(
     model: nn.Module,
     train_loader: DataLoader,
@@ -274,6 +153,9 @@ def train(
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE)
     early_stopping = EarlyStopping(patience=PATIENCE)
+
+    train_losses = []
+    test_losses = []
 
     print("=" * 60)
     print("  开始训练 (Attention-Bi-GRU)")
@@ -294,6 +176,9 @@ def train(
         train_loss = train_one_epoch(model, train_loader, criterion, optimizer, device)
         test_loss = evaluate(model, test_loader, criterion, device)
         early_stopping(test_loss, model, epoch)
+
+        train_losses.append(train_loss)
+        test_losses.append(test_loss)
 
         remark = ""
         if test_loss <= early_stopping.best_loss:
@@ -323,6 +208,14 @@ def train(
     os.makedirs(os.path.dirname(MODEL_SAVE_PATH), exist_ok=True)
     torch.save(model.state_dict(), MODEL_SAVE_PATH)
     print(f"  ✅ 最佳模型已保存至: {MODEL_SAVE_PATH}")
+
+    plot_loss_curves(
+        train_losses=train_losses,
+        test_losses=test_losses,
+        best_epoch=early_stopping.best_epoch,
+        save_path=LOSS_CURVE_PATH,
+        title="Attention-Bi-GRU — 训练损失曲线",
+    )
 
 
 # ============================================================================
@@ -356,12 +249,7 @@ def main():
     init_weights(model)
     print(f"  ✅ Xavier Uniform 权重初始化完成 (dropout = {DROPOUT})")
     print(f"  编码器层数 N_enc = {N_ENC_LAYERS}, 解码器层数 N_dec = {N_DEC_LAYERS}")
-    if N_DECODE_STEPS == 1:
-        print(f"  解码步数 T_dec = 1 (单步预测; 注意自回归循环未触发, 模型动态特性退化)")
-    else:
-        print(f"  解码步数 T_dec = {N_DECODE_STEPS} "
-              f"(自回归 Seq2Seq, 训练目标 Y shape = (B, {N_DECODE_STEPS}, 3); "
-              f"评估时 compare_all 仅取首步与 pure_gru 对齐)")
+    print(f"  解码步数 T_dec = {N_DECODE_STEPS} (与 pure_gru 对齐)")
 
     model.to(device)
     print(f"  ✅ 模型已移至 {device}")

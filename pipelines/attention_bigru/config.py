@@ -56,6 +56,7 @@ OUTPUT_CMP_DIR = os.path.join(PROJECT_ROOT, "output", "comparison")
 OUTPUT_IMG_PATH = os.path.join(OUTPUT_IMG_DIR, "trajectory_3d_plot_attn_bigru.png")
 OUTPUT_2D_ERROR_PATH = os.path.join(OUTPUT_IMG_DIR, "trajectory_2d_error_attn_bigru.png")
 OUTPUT_TIME_PATH = os.path.join(OUTPUT_IMG_DIR, "inference_time_plot_attn_bigru.png")
+LOSS_CURVE_PATH = os.path.join(OUTPUT_IMG_DIR, "loss_curve_attn_bigru.png")
 
 # ============================================================================
 # 双管线对比输出路径 (compare_all.py)
@@ -131,12 +132,7 @@ D_FF = 128
 DROPOUT = 0.2
 OUTPUT_SIZE = 3
 N_INTENT = 4
-# 解码步数:
-#   训练 / 推理 时模型自回归输出 N_DECODE_STEPS 步 (论文 Section 4.2 Seq2Seq 设计的核心,
-#   只有 > 1 才会真正触发 output_proj 自回归循环 + 动态 Q/α 的"动态"特性);
-#   与 pure_gru 对比时 (compare_all.py) 仅取首步 [:, 0, :], 保证两者预测的目标时刻
-#   完全对齐 (target[t]), 任务定义一致 → 公平。
-N_DECODE_STEPS = 5
+N_DECODE_STEPS = 1     # 与 pure_gru 对齐 (1 步预测); 架构支持多步
 
 # ============================================================================
 # 训练超参数 (论文 Table 3)

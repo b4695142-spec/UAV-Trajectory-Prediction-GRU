@@ -135,27 +135,11 @@ def load_and_predict() -> tuple:
         for i in range(0, len(X_feat_t), chunk):
             x_f = X_feat_t[i:i + chunk]
             x_i = X_intent_t[i:i + chunk]
-            out = model(x_f, x_i)
-            # out shape:
-            #   (chunk, output_size)                    当 N_DECODE_STEPS == 1
-            #   (chunk, N_DECODE_STEPS, output_size)    当 N_DECODE_STEPS  > 1
+            out = model(x_f, x_i)                # (chunk, output_size) [N_DECODE_STEPS=1]
             Y_pred_list.append(out.cpu().numpy())
     Y_pred = np.concatenate(Y_pred_list, axis=0)
 
-    print(f"  ✅ 推理完成! Y_pred shape: {Y_pred.shape}  "
-          f"Y_test shape: {Y_test.shape}")
-
-    # ── 多步解码: 仅保留首步用于轨迹图与 2D 误差曲线 ──
-    # 模型输出第 0 步对应 target[t], 与 pure_gru 的预测目标完全对齐;
-    # 后续 4 步是更远视距的预测, 在单管线可视化里展示首步即可保证图像清晰。
-    if N_DECODE_STEPS > 1:
-        if Y_pred.ndim == 3:
-            Y_pred = Y_pred[:, 0, :]
-        if Y_test.ndim == 3:
-            Y_test = Y_test[:, 0, :]
-        print(f"  ℹ️  T_dec={N_DECODE_STEPS}: 仅取首步用于绘图 → "
-              f"Y_pred: {Y_pred.shape}, Y_test: {Y_test.shape}")
-    print()
+    print(f"  ✅ 推理完成! Y_pred shape: {Y_pred.shape}\n")
 
     return Y_pred, Y_test
 

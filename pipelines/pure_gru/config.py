@@ -42,6 +42,7 @@ OUTPUT_IMG_DIR = os.path.join(PROJECT_ROOT, "output", "pure_gru")
 OUTPUT_IMG_PATH = os.path.join(OUTPUT_IMG_DIR, "trajectory_3d_plot.png")
 OUTPUT_2D_ERROR_PATH = os.path.join(OUTPUT_IMG_DIR, "trajectory_2d_error.png")
 OUTPUT_TIME_PATH = os.path.join(OUTPUT_IMG_DIR, "inference_time_plot.png")
+LOSS_CURVE_PATH = os.path.join(OUTPUT_IMG_DIR, "loss_curve.png")
 
 # ============================================================================
 # 数据预处理参数 (preprocess_uav.py)

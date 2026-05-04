@@ -36,39 +36,28 @@ def build_augmented_sequences(
     forward_length: int = 0,
     dataset_name: str = "dataset",
     verbose: bool = True,
-    decode_steps: int = 1,
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     基于"筛选后的标准化特征 + SVM 概率"构建滑动窗口增广序列。
 
-    数学定义:
-        对有效时间点 t (look_back - 1 <= t <= N - forward_length - decode_steps):
-            X[i][s] = concat(feat_selected[t-look_back+1+s], intent_probs[t-look_back+1+s])
-            Y[i]    = target[t + forward_length : t + forward_length + decode_steps]
-
-        当 decode_steps == 1 时, Y 自动 squeeze 为 (n_valid, 3), 与单步预测管线
-        (pure_gru / intent_gru) 完全兼容; 当 decode_steps > 1 时, Y 形状为
-        (n_valid, decode_steps, 3), 用于 Attention-Bi-GRU 的自回归多步训练。
+    数学定义 (与原始 build_sequences.py 一致，只是把输入特征替换为 augmented):
+        对有效时间点 t (Look_Back-1 <= t <= N-Forward_Length-1):
+            X[t][s] = concat(feat_selected[t-Look_Back+1+s], intent_probs[t-Look_Back+1+s])
+            Y[t]    = target[t + Forward_Length]
 
     参数:
         feat_selected:     shape (N, n_selected), StandardScaler 标准化 + RF 筛选后的特征
         intent_probs:      shape (N, n_classes), 逐时刻 SVM 概率向量 (n_classes=4)
-        target:            shape (N, 3), 归一化后的 (lat, lon, alt), 作为回归目标
+        target:            shape (N, 3), MinMax 归一化后的 (lat, lon, alt)，作为回归目标
         look_back:         历史观测步长 (默认用主管线的 50)
-        forward_length:    未来预测起点偏移 (默认 0 = 当前时刻)
+        forward_length:    未来预测步长 (默认 0, 当前时刻)
         dataset_name:      日志用名称
         verbose:           是否打印日志
-        decode_steps:      解码步数 (默认 1 = 单步, 与 pure_gru / intent_gru 兼容)
-                           > 1 时 Y 形状变为 (n_valid, decode_steps, 3)
 
     返回:
         X: np.ndarray, shape (n_valid, look_back, n_selected + n_classes)
-        Y: np.ndarray, shape (n_valid, 3)              当 decode_steps == 1
-                       shape (n_valid, decode_steps, 3) 当 decode_steps > 1
+        Y: np.ndarray, shape (n_valid, 3)
     """
-    if decode_steps < 1:
-        raise ValueError(f"decode_steps 必须 >= 1, 当前 = {decode_steps}")
-
     # --- 形状校验 -------------------------------------------------------
     N = feat_selected.shape[0]
     if intent_probs.shape[0] != N:
@@ -81,42 +70,31 @@ def build_augmented_sequences(
         )
 
     t_min = look_back - 1
-    # 多步: 需要保留 decode_steps 个未来步, 因此上界整体左移 (decode_steps - 1)
-    t_max = N - forward_length - decode_steps
+    t_max = N - forward_length - 1
     if t_min > t_max:
         raise ValueError(
-            f"[{dataset_name}] 数据量不足 (N={N}, "
-            f"need >= {look_back + forward_length + decode_steps - 1})"
+            f"[{dataset_name}] 数据量不足 (N={N}, need>={look_back + forward_length})"
         )
 
     # --- 预先拼接 (N, n_selected + n_classes) --------------------------
     augmented = np.concatenate([feat_selected, intent_probs], axis=1)
     n_feat = augmented.shape[1]
     n_valid = t_max - t_min + 1
-    out_dim = target.shape[1]
 
     if verbose:
         print(f"  [{dataset_name}] 构建增广滑动窗口序列")
-        print(f"    N = {N}, Look_Back = {look_back}, Forward_Length = {forward_length}, "
-              f"Decode_Steps = {decode_steps}")
+        print(f"    N = {N}, Look_Back = {look_back}, Forward_Length = {forward_length}")
         print(f"    单步特征维度 = {n_feat} (= {feat_selected.shape[1]} 筛选特征"
               f" + {intent_probs.shape[1]} 意图概率)")
         print(f"    有效样本数量 = {n_valid}")
 
     # --- 生成 X, Y ------------------------------------------------------
     X = np.empty((n_valid, look_back, n_feat), dtype=np.float32)
+    Y = np.empty((n_valid, target.shape[1]), dtype=np.float32)
 
-    if decode_steps == 1:
-        Y = np.empty((n_valid, out_dim), dtype=np.float32)
-        for i, t in enumerate(range(t_min, t_max + 1)):
-            X[i] = augmented[t - look_back + 1: t + 1]
-            Y[i] = target[t + forward_length]
-    else:
-        Y = np.empty((n_valid, decode_steps, out_dim), dtype=np.float32)
-        for i, t in enumerate(range(t_min, t_max + 1)):
-            X[i] = augmented[t - look_back + 1: t + 1]
-            start = t + forward_length
-            Y[i] = target[start: start + decode_steps]
+    for i, t in enumerate(range(t_min, t_max + 1)):
+        X[i] = augmented[t - look_back + 1: t + 1]
+        Y[i] = target[t + forward_length]
 
     if verbose:
         print(f"    ✅ X shape: {X.shape}  |  Y shape: {Y.shape}\n")

@@ -22,8 +22,9 @@
 - **精准评估体系**：除常规 MSE 损失外，还计算了物理含义明确的 MAE、RMSE、Average RMSE、3D 空间欧氏距离误差（Mean / Median / Max / P95 / P99）。
 - **三维度可视化**：
   - **3D 轨迹图**：直观对比真实轨迹与预测轨迹在三维空间中的重合度。
-  - **2D 误差图**：实时分析 3D 欧氏距离综合预测误差随时间步的变化趋势。
-  - **推理耗时图**：评估模型单次预测延迟，分析推理性能随时间步的波动情况。
+  - **2D 误差图**：对比评估脚本中分析 3D 欧氏距离综合预测误差随时间步的变化趋势。
+  - **误差 CDF 图**：量化离群值尾部分布差异。
+- **共享训练基础设施**：`core/training_utils.py` 提供统一的 EarlyStopping、训练循环、评估函数、设备选择、权重初始化与损失曲线绘制，所有训练管线复用同一套基础设施，避免代码重复。
 - **双管线对比评估**：提供 `compare_models.py`（纯 GRU vs GRU+意图）和 `compare_all.py`（纯 GRU vs Attention-Bi-GRU+意图）脚本，在统一测试集上进行定量/定性对比，包含误差 CDF、离群值统计、超参数差异声明等多维分析。
 
 ---
@@ -33,10 +34,10 @@
 ```text
 UAV-Trajectory-Prediction-GRU/
 ├── core/                                # 核心共享代码
-│   ├── __init__.py                      # 模块初始化 (导出 UAVTrajectoryGRU, AttentionBiGRU 等)
+│   ├── __init__.py                      # 模块初始化 (导出 UAVTrajectoryGRU, AttentionBiGRU, EncoderLayer, DecoderLayer, FeedForward, ScaledDotProductAttention)
 │   ├── gru_model.py                     # GRU 模型类定义 (UAVTrajectoryGRU, 纯 GRU / 意图 GRU 共用)
 │   ├── attention_bigru_model.py          # Attention-Bi-GRU 模型类定义 (AttentionBiGRU + 子模块)
-│   └── test_gru_model.py                # 模型结构与前向传播验证脚本
+│   └── training_utils.py                # 共享训练基础设施 (EarlyStopping, train_one_epoch, evaluate, get_device, init_weights, plot_loss_curves)
 │
 ├── pipelines/
 │   ├── __init__.py                      # 管线包初始化
@@ -126,26 +127,31 @@ UAV-Trajectory-Prediction-GRU/
 
 ```text
 UAV-Trajectory-Prediction-GRU/
-├── trajectory_3d_plot.png               # [纯 GRU 输出] 3D 轨迹对比图
-├── trajectory_2d_error.png              # [纯 GRU 输出] 2D 综合误差折线图
-├── inference_time_plot.png              # [纯 GRU 输出] 单次预测耗时折线图
-├── trajectory_3d_plot_intent.png        # [意图 GRU 输出] 3D 轨迹对比图
-├── trajectory_2d_error_intent.png       # [意图 GRU 输出] 2D 综合误差折线图
-├── inference_time_plot_intent.png       # [意图 GRU 输出] 单次预测耗时折线图
-├── trajectory_3d_plot_attn_bigru.png    # [Attention-Bi-GRU 输出] 3D 轨迹对比图
-├── trajectory_2d_error_attn_bigru.png   # [Attention-Bi-GRU 输出] 2D 综合误差折线图
-├── inference_time_plot_attn_bigru.png   # [Attention-Bi-GRU 输出] 单次预测耗时折线图
-├── compare_2d_error.png                 # [意图对比输出] 2D 误差曲线对比图
-├── compare_3d_trajectory.png            # [意图对比输出] 3D 轨迹对比图
-├── compare_error_cdf.png                # [意图对比输出] 误差直方图 + CDF 对比图
-├── compare_metrics.json                 # [意图对比输出] 定量指标汇总 JSON
-├── compare_2d_error_all.png             # [Attn 对比输出] 2D 误差曲线对比图
-├── compare_3d_trajectory_all.png        # [Attn 对比输出] 3D 轨迹对比图
-├── compare_error_cdf_all.png            # [Attn 对比输出] 误差直方图 + CDF 对比图
-└── compare_metrics_all.json             # [Attn 对比输出] 定量指标汇总 JSON
+└── output/                              # [自动生成] 可视化与对比输出 (已被 .gitignore 忽略)
+    ├── pure_gru/                        # 纯 GRU 管线输出
+    │   ├── trajectory_3d_plot.png       # 3D 轨迹对比图
+    │   └── loss_curve.png              # 训练损失曲线
+    │
+    ├── intent_gru/                      # 意图 GRU 管线输出
+    │   ├── trajectory_3d_plot_intent.png # 3D 轨迹对比图
+    │   └── loss_curve_intent.png       # 训练损失曲线
+    │
+    ├── attention_bigru/                 # Attention-Bi-GRU 管线输出
+    │   ├── trajectory_3d_plot_attn_bigru.png # 3D 轨迹对比图
+    │   └── loss_curve_attn_bigru.png   # 训练损失曲线
+    │
+    └── comparison/                      # 双管线对比评估输出
+        ├── compare_2d_error.png         # [意图对比] 2D 误差曲线对比图
+        ├── compare_3d_trajectory.png    # [意图对比] 3D 轨迹对比图
+        ├── compare_error_cdf.png        # [意图对比] 误差直方图 + CDF 对比图
+        ├── compare_metrics.json         # [意图对比] 定量指标汇总 JSON
+        ├── compare_2d_error_all.png     # [Attn 对比] 2D 误差曲线对比图
+        ├── compare_3d_trajectory_all.png # [Attn 对比] 3D 轨迹对比图
+        ├── compare_error_cdf_all.png    # [Attn 对比] 误差直方图 + CDF 对比图
+        └── compare_metrics_all.json     # [Attn 对比] 定量指标 + 超参数汇总 JSON
 ```
 
-> **注意**：`Log Files/` 目录及 `OnboardGPS.csv` 需自行下载并放置；`processed_data/` 目录及所有 `.npy`、`.npz`、`.pth`、`.pkl` 文件由脚本自动生成，已被 `.gitignore` 忽略。
+> **注意**：`Log Files/` 目录及 `OnboardGPS.csv` 需自行下载并放置；`processed_data/` 目录及所有 `.npy`、`.npz`、`.pth`、`.pkl` 文件由脚本自动生成，已被 `.gitignore` 忽略；`output/` 目录由可视化脚本自动生成，同样已被 `.gitignore` 忽略。
 
 ---
 
@@ -160,7 +166,7 @@ pip install torch numpy pandas scikit-learn matplotlib
 
 | 依赖库            | 用途                                       | 使用模块                                                                                                                                                                                                                                                          |
 | -------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `torch`        | GRU / Attention-Bi-GRU 模型构建、训练与推理        | `core/gru_model.py`, `core/attention_bigru_model.py`, `pipelines/pure_gru/train.py`, `pipelines/pure_gru/visualize.py`, `pipelines/intent_gru/train_with_intent.py`, `pipelines/intent_gru/visualize_with_intent.py`, `pipelines/intent_gru/compare_models.py`, `pipelines/attention_bigru/train.py`, `pipelines/attention_bigru/visualize.py`, `pipelines/attention_bigru/compare_all.py` |
+| `torch`        | GRU / Attention-Bi-GRU 模型构建、训练与推理        | `core/gru_model.py`, `core/attention_bigru_model.py`, `core/training_utils.py`, `pipelines/pure_gru/train.py`, `pipelines/pure_gru/visualize.py`, `pipelines/intent_gru/train_with_intent.py`, `pipelines/intent_gru/visualize_with_intent.py`, `pipelines/intent_gru/compare_models.py`, `pipelines/attention_bigru/train.py`, `pipelines/attention_bigru/visualize.py`, `pipelines/attention_bigru/compare_all.py` |
 | `numpy`        | 数组运算与数据存储                                | 全部模块                                                                                                                                                                                                                          |
 | `pandas`       | CSV 读取与数据清洗                              | `pipelines/pure_gru/preprocess_uav.py`, `pipelines/intent_gru/intent/feature_extractor.py`                                                                                                                                    |
 | `scikit-learn` | MinMaxScaler / StandardScaler 归一化、RF、SVM | `pipelines/pure_gru/preprocess_uav.py`, `pipelines/intent_gru/prepare_intent.py`, `pipelines/intent_gru/intent/rf_selector.py`, `pipelines/intent_gru/intent/svm_classifier.py`, `pipelines/attention_bigru/prepare_data.py` |
@@ -218,7 +224,7 @@ python train.py
 - **优化机制**：采用 **Early Stopping**（Patience=15），连续 15 个 Epoch 测试集损失无改善则终止训练，自动保存测试集表现最佳的模型权重
 - **权重初始化**：Xavier Uniform (Glorot) 初始化，偏置项置零
 - **设备支持**：自动检测 CUDA GPU，不可用时回退至 CPU
-- **输出**：`processed_data/best_gru_model.pth`
+- **输出**：`processed_data/best_gru_model.pth`、`output/pure_gru/loss_curve.png`
 
 ### 4. 结果验证与可视化
 
@@ -230,22 +236,10 @@ python visualize.py
 - **执行步骤**：
   1. 加载测试集与模型权重，执行推理
   2. 反归一化，还原为真实世界坐标，计算各项误差指标
-  3. 绘制 3D 轨迹对比图 → `trajectory_3d_plot.png`
-  4. 绘制 2D 综合误差折线图 → `trajectory_2d_error.png`
-  5. 评估单次预测耗时并绘制折线图 → `inference_time_plot.png`
+  3. 绘制 3D 轨迹对比图 → `output/pure_gru/trajectory_3d_plot.png`
 - **可视化参数**（可在 `config.py` 中修改）：
   - `PLOT_START = 0`：绘图起始索引
   - `PLOT_END = None`：绘图结束索引（`None` 表示绘制全部测试集）
-
-### 5. 模型结构验证 (可选)
-
-```bash
-cd ../../
-python core/test_gru_model.py
-```
-
-- 独立验证 `UAVTrajectoryGRU` 模型的结构与前向传播正确性
-- 输出模型结构、总参数量、可训练参数量，并执行一次 dummy 前向传播
 
 ---
 
@@ -329,7 +323,7 @@ Linear (64 → 3)
 | 解码器层数 (N_dec)       | 4                                                     |
 | FFN 中间维度 (d_ff)     | 128                                                   |
 | 意图概率维度 (n_intent)  | 4                                                     |
-| 解码步数 (T_dec)        | 1 (与纯 GRU 对齐；架构支持多步)                                  |
+| 解码步数 (T_dec)        | 1 (与 pure_gru 对齐; 架构支持多步配置)                  |
 | Dropout             | 0.2 (论文 Table 3)                                     |
 | 注意力机制               | 缩放点积 Attention (论文公式 30), Q 每步动态重新计算                   |
 | 意图融合方式              | 每层每步独立 GeLU 变换 + Concat 融合 (论文公式 31-32)               |
@@ -448,9 +442,9 @@ Linear (64 → 3)
 | `DROPOUT`                      | 0.2                  | Dropout (论文 Table 3)                            |
 | `OUTPUT_SIZE`                  | 3                    | 输出维度                                            |
 | `N_INTENT`                     | 4                    | 意图概率维度                                          |
-| `N_DECODE_STEPS`               | 1                    | 解码步数 (与纯 GRU 对齐; 架构支持多步)                       |
+| `N_DECODE_STEPS`               | 1                    | 解码步数 (与 pure_gru 对齐; 架构支持多步配置)                           |
 | `BATCH_SIZE`                   | 64                   | 批次大小 (论文 Table 3)                               |
-| `LEARNING_RATE`                | 1e-3                 | Adam 学习率                                        |
+| `LEARNING_RATE`                | 5e-4                 | Adam 学习率                                        |
 | `MAX_EPOCHS`                   | 300                  | 最大训练轮数 (论文 Table 3)                             |
 | `PATIENCE`                     | 15                   | 早停耐心值                                           |
 | `PLOT_START`                   | 0                    | 绘图起始索引                                          |
@@ -463,19 +457,24 @@ Linear (64 → 3)
 
 ### 纯 GRU 管线
 
-项目运行 `visualize.py` 后将生成以下三张图表：
+项目运行 `train.py` 和 `visualize.py` 后将生成以下图表：
 
-1. **3D 轨迹对比图** (`trajectory_3d_plot.png`)：展示无人机在三维空间中的实际机动路径（灰色虚线）与 GRU 预测路径（红色实线），标记起点（绿色圆点）与终点（蓝色三角）。
-2. **2D 综合误差折线图** (`trajectory_2d_error.png`)：横轴为时间步，纵轴为 3D 欧氏距离综合真实误差，用于分析预测稳定性与误差波动。
-3. **推理耗时折线图** (`inference_time_plot.png`)：横轴为时间步，纵轴为单次预测耗时（毫秒），红色虚线标注平均耗时，用于评估模型推理性能。
+1. **训练损失曲线** (`output/pure_gru/loss_curve.png`)：展示训练损失与验证损失随 Epoch 的变化趋势，标注最佳 Epoch 与对应损失值。
+2. **3D 轨迹对比图** (`output/pure_gru/trajectory_3d_plot.png`)：展示无人机在三维空间中的实际机动路径（灰色虚线）与 GRU 预测路径（红色实线），标记起点（绿色圆点）与终点（蓝色三角）。
+
+### 意图增强 GRU 管线
+
+运行 `train_with_intent.py` 和 `visualize_with_intent.py` 后将生成以下图表：
+
+1. **训练损失曲线** (`output/intent_gru/loss_curve_intent.png`)：意图增广版 GRU 的训练损失与验证损失曲线。
+2. **3D 轨迹对比图** (`output/intent_gru/trajectory_3d_plot_intent.png`)：实际轨迹（灰色虚线）vs GRU+意图预测轨迹（橙色实线）。
 
 ### Attention-Bi-GRU 管线
 
-运行 `visualize.py` 后将生成以下三张图表：
+运行 `train.py` 和 `visualize.py` 后将生成以下图表：
 
-1. **3D 轨迹对比图** (`trajectory_3d_plot_attn_bigru.png`)：实际轨迹（灰色虚线）vs Attention-Bi-GRU + 意图预测轨迹（蓝色实线）。
-2. **2D 综合误差折线图** (`trajectory_2d_error_attn_bigru.png`)：3D 欧氏距离误差随时间步变化。
-3. **推理耗时折线图** (`inference_time_plot_attn_bigru.png`)：单次预测耗时（毫秒），含平均耗时标注。
+1. **训练损失曲线** (`output/attention_bigru/loss_curve_attn_bigru.png`)：Attention-Bi-GRU 的训练损失与验证损失曲线。
+2. **3D 轨迹对比图** (`output/attention_bigru/trajectory_3d_plot_attn_bigru.png`)：实际轨迹（灰色虚线）vs Attention-Bi-GRU + 意图预测轨迹（蓝色实线）。
 
 ---
 
@@ -577,7 +576,7 @@ python train_with_intent.py
 
 - **输入**：步骤 1.5 生成的增广序列数据
 - **说明**：与纯 GRU 的 `train.py` 功能等价，唯一区别在于 `input_size` 由数据动态决定（而非固定为 3），模型权重保存至 `processed_data/intent/best_gru_model_intent.pth`
-- **输出**：`processed_data/intent/best_gru_model_intent.pth`
+- **输出**：`processed_data/intent/best_gru_model_intent.pth`、`output/intent_gru/loss_curve_intent.png`
 
 #### 步骤 1.7：增广版推理与可视化
 
@@ -587,9 +586,7 @@ python visualize_with_intent.py
 
 - **输入**：意图增广测试集 + 增广模型权重 + 归一化参数
 - **输出**：
-  - `trajectory_3d_plot_intent.png`：3D 轨迹对比图
-  - `trajectory_2d_error_intent.png`：2D 综合误差折线图
-  - `inference_time_plot_intent.png`：单次预测耗时折线图
+  - `output/intent_gru/trajectory_3d_plot_intent.png`：3D 轨迹对比图
 
 #### 步骤 1.8：双管线对比评估 (可选)
 
@@ -605,16 +602,16 @@ python compare_models.py
   3. **3D 轨迹对比**：灰色虚线为真值，红色为纯 GRU 预测，橙色为 GRU+意图预测
   4. **误差直方图 + CDF 对比**：量化离群值尾部分布差异
 - **输出**：
-  - `compare_2d_error.png`：2D 误差曲线对比图
-  - `compare_3d_trajectory.png`：3D 轨迹对比图
-  - `compare_error_cdf.png`：误差直方图 + CDF 对比图
-  - `compare_metrics.json`：定量指标汇总 JSON
+  - `output/comparison/compare_2d_error.png`：2D 误差曲线对比图
+  - `output/comparison/compare_3d_trajectory.png`：3D 轨迹对比图
+  - `output/comparison/compare_error_cdf.png`：误差直方图 + CDF 对比图
+  - `output/comparison/compare_metrics.json`：定量指标汇总 JSON
 
 ---
 
 ## 🔬 Attention-Bi-GRU 增强版流水线 (论文完整实现)
 
-严格遵循论文 *"Research on trajectory prediction algorithm based on unmanned aerial vehicles behavioral intentions"* (Drones 2025, 9, 640) Section 4.2 的完整 Seq2Seq 架构实现，包含 Bi-GRU 编码器/解码器、动态缩放点积 Attention、每层每步 GeLU 意图融合和自回归多步解码。
+严格遵循论文 *"Research on trajectory prediction algorithm based on unmanned aerial vehicles behavioral intentions"* (Drones 2025, 9, 640) Section 4.2 的完整 Seq2Seq 架构实现，包含 Bi-GRU 编码器/解码器、动态缩放点积 Attention、每层每步 GeLU 意图融合和自回归多步解码（架构支持配置，当前默认 T_dec=1 与 pure_gru 对齐）。
 
 ### 与其他管线的关键差异
 
@@ -627,10 +624,10 @@ python compare_models.py
 | 归一化方法      | MinMaxScaler [0,1]         | 位置列 MinMax / 其他列 Standard        | **StandardScaler (论文 Equation 8)**                     |
 | 编/解码层数     | 2 层 GRU                    | 2 层 GRU                          | 编码器 4 层 + 解码器 4 层                                      |
 | Dropout    | 0.0                        | 0.0                              | 0.2 (论文 Table 3)                                      |
-| 学习率        | 1e-3                       | 1e-3                             | 1e-3                                                   |
+| 学习率        | 1e-3                       | 1e-3                             | 5e-4                                                   |
 | Batch Size | 70                         | 70                               | 64 (论文 Table 3)                                        |
 | Max Epochs | 500                        | 500                              | 300 (论文 Table 3)                                       |
-| 解码步数       | 1                          | 1                                | 1 (架构支持多步)                                             |
+| 解码步数       | 1                          | 1                                | 1 (与 pure_gru 对齐; 架构支持多步配置)                      |
 | 数据产物目录     | `processed_data/`          | `processed_data/intent/`         | `processed_data/attention_bigru/`                      |
 
 ### 运行流程
@@ -676,13 +673,14 @@ python train.py
 - **输入**：步骤 2.1 生成的 StandardScaler 归一化增广数据
 - **训练参数**（论文 Table 3）：
   - Batch Size = 64
-  - 学习率 = 1e-3（Adam 优化器）
+  - 学习率 = 5e-4（Adam 优化器）
   - 最大 Epochs = 300
   - 损失函数 = MSELoss
   - 早停 Patience = 15
   - Dropout = 0.2
+  - 解码步数 = 1（与 pure_gru 对齐；架构支持多步配置）
 - **数据拆分**：增广 X 的最后 4 列为 SVM 概率（`n_intent=4`），其余为结构性特征，分别传入模型的 `x` 和 `intent_probs` 参数
-- **输出**：`processed_data/attention_bigru/best_attention_bigru_model.pth`
+- **输出**：`processed_data/attention_bigru/best_attention_bigru_model.pth`、`output/attention_bigru/loss_curve_attn_bigru.png`
 
 #### 步骤 2.3：推理与可视化
 
@@ -692,10 +690,9 @@ python visualize.py
 
 - **输入**：StandardScaler 归一化测试集 + 训练好的模型权重
 - **反归一化**：使用 StandardScaler 逆变换 `X_original = X_scaled * σ + μ`（论文 Equation 8 的逆运算）
+- **多步解码处理**：当 `N_DECODE_STEPS > 1` 时，仅取首步预测用于轨迹图绘制，保证与纯 GRU 预测目标对齐；当前默认 `N_DECODE_STEPS = 1`，与纯 GRU 单步预测一致
 - **输出**：
-  - `trajectory_3d_plot_attn_bigru.png`：3D 轨迹对比图（实际轨迹 vs Attention-Bi-GRU + 意图预测轨迹）
-  - `trajectory_2d_error_attn_bigru.png`：2D 综合误差折线图
-  - `inference_time_plot_attn_bigru.png`：单次预测耗时折线图
+  - `output/attention_bigru/trajectory_3d_plot_attn_bigru.png`：3D 轨迹对比图（实际轨迹 vs Attention-Bi-GRU + 意图预测轨迹）
 
 #### 步骤 2.4：双管线对比评估 (可选)
 
@@ -717,10 +714,10 @@ python compare_all.py
   - ⚠️ 归一化方法不同 (MinMax vs Standard)
   - ⚠️ 超参数差异 (lr / batch / dropout / epochs / 架构)，性能差异不能完全归因于架构改进
 - **输出**：
-  - `compare_2d_error_all.png`：2D 误差曲线对比图
-  - `compare_3d_trajectory_all.png`：3D 轨迹对比图
-  - `compare_error_cdf_all.png`：误差直方图 + CDF 对比图
-  - `compare_metrics_all.json`：定量指标 + 超参数汇总 JSON
+  - `output/comparison/compare_2d_error_all.png`：2D 误差曲线对比图
+  - `output/comparison/compare_3d_trajectory_all.png`：3D 轨迹对比图
+  - `output/comparison/compare_error_cdf_all.png`：误差直方图 + CDF 对比图
+  - `output/comparison/compare_metrics_all.json`：定量指标 + 超参数汇总 JSON
 
 ### 有意偏差与混淆风险说明
 
@@ -729,13 +726,14 @@ Attention-Bi-GRU 管线与纯 GRU 基线之间存在以下有意偏差，在解�
 | 偏差项       | 纯 GRU       | Attention-Bi-GRU    | 偏差理由                   | 混淆风险 |
 | --------- | ------------ | ------------------- | ---------------------- | ---- |
 | 归一化方法     | MinMaxScaler | StandardScaler (论文) | 论文 Equation 8 明确使用 Z-score | 高    |
-| 学习率       | 1e-3         | 1e-3                | —                      | 无    |
+| 学习率       | 1e-3         | 5e-4 (论文)           | 论文 Table 3 设定          | 中    |
 | Batch Size | 70           | 64 (论文)             | 论文 Table 3 设定          | 中    |
 | Dropout   | 0.0          | 0.2 (论文)            | 论文 Table 3 设定          | 高    |
 | Max Epochs | 500          | 300 (论文)            | 论文 Table 3 设定          | 低    |
+| 解码步数      | 1            | 1 (与 pure_gru 对齐)             | 架构支持多步, 当前对齐基线       | 无    |
 | Look Back | 50           | 50                  | 与纯 GRU 对齐              | 无    |
 
-> **建议后续补充**：增加一组使用与纯 GRU 相同超参数 (lr=1e-3, batch=70, dropout=0.0) 的 Attention-Bi-GRU 作为对照，以隔离超参数影响。
+> **建议后续补充**：增加一组使用与纯 GRU 相同超参数 (lr=1e-3, batch=70, dropout=0.0) 的 Attention-Bi-GRU 作为对照，以隔离超参数影响；同时可尝试 T_dec=5 的多步解码配置，验证自回归解码的增益。
 
 ---
 

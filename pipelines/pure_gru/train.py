@@ -31,6 +31,7 @@ from config import (
     HIDDEN_SIZE,
     INPUT_SIZE,
     LEARNING_RATE,
+    LOSS_CURVE_PATH,
     MAX_EPOCHS,
     MODEL_SAVE_PATH,
     NUM_LAYERS,
@@ -45,22 +46,19 @@ from config import (
 if PROJECT_ROOT not in sys.path:
     sys.path.append(PROJECT_ROOT)
 from core.gru_model import UAVTrajectoryGRU
+from core.training_utils import (
+    EarlyStopping,
+    evaluate,
+    get_device,
+    init_weights,
+    plot_loss_curves,
+    train_one_epoch,
+)
 
 
 # ============================================================================
 # 工具函数
 # ============================================================================
-def get_device() -> torch.device:
-    """选择最优计算设备: CUDA GPU > CPU"""
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-        print(f"  使用设备: {torch.cuda.get_device_name(0)} (CUDA)")
-    else:
-        device = torch.device("cpu")
-        print(f"  使用设备: CPU")
-    return device
-
-
 def load_data() -> tuple:
     """
     加载预处理后的 .npy 数据文件，转换为 PyTorch DataLoader。
@@ -110,147 +108,6 @@ def load_data() -> tuple:
     return train_loader, test_loader
 
 
-def init_weights(model: nn.Module) -> None:
-    """
-    Glorot (Xavier Uniform) 权重初始化。
-
-    策略:
-        - GRU 权重矩阵 (weight_ih_*, weight_hh_*): Xavier Uniform
-        - Linear 权重 (fc.weight): Xavier Uniform
-        - 所有偏置项 (bias): 初始化为 0
-    """
-    for name, param in model.named_parameters():
-        if "weight" in name:
-            # 对所有权重矩阵应用 Glorot/Xavier 均匀初始化
-            # GRU 的 weight_ih / weight_hh 和 Linear 的 weight 均适用
-            nn.init.xavier_uniform_(param.data)
-        elif "bias" in name:
-            # 偏置项全部置零
-            nn.init.zeros_(param.data)
-
-
-class EarlyStopping:
-    """
-    早停机制: 监控验证损失，在指定 patience 内无改善时终止训练。
-
-    属性:
-        patience    (int):   连续无改善的最大容忍 Epoch 数
-        best_loss   (float): 历史最佳验证损失
-        best_epoch  (int):   最佳验证损失对应的 Epoch
-        counter     (int):   当前连续无改善的计数器
-        best_state  (dict):  最佳模型的权重副本
-        early_stop  (bool):  是否触发早停
-    """
-
-    def __init__(self, patience: int = 15):
-        self.patience = patience
-        self.best_loss = float("inf")
-        self.best_epoch = 0
-        self.counter = 0
-        self.best_state = None
-        self.early_stop = False
-
-    def __call__(self, val_loss: float, model: nn.Module, epoch: int):
-        """
-        每个 Epoch 结束时调用，判断是否触发早停。
-
-        参数:
-            val_loss: 当前 Epoch 的验证损失
-            model:    当前模型 (用于保存最佳权重)
-            epoch:    当前 Epoch 编号
-        """
-        if val_loss < self.best_loss:
-            # 验证损失有改善 → 更新最佳记录，重置计数器
-            self.best_loss = val_loss
-            self.best_epoch = epoch
-            self.counter = 0
-            # 深拷贝当前模型权重 (移到 CPU 以节省 GPU 显存)
-            self.best_state = {
-                k: v.clone().cpu() for k, v in model.state_dict().items()
-            }
-        else:
-            # 无改善 → 计数器 +1
-            self.counter += 1
-            if self.counter >= self.patience:
-                self.early_stop = True
-                print(
-                    f"\n  ⏹ 早停触发! 连续 {self.patience} 个 Epoch 验证损失无改善。"
-                )
-                print(f"    最佳 Epoch: {self.best_epoch}, 最佳 Test Loss: {self.best_loss:.8f}")
-
-
-# ============================================================================
-# 训练与验证
-# ============================================================================
-def train_one_epoch(
-    model: nn.Module,
-    train_loader: DataLoader,
-    criterion: nn.Module,
-    optimizer: torch.optim.Optimizer,
-    device: torch.device,
-) -> float:
-    """
-    执行一个 Epoch 的训练。
-
-    返回:
-        avg_train_loss: 该 Epoch 的平均训练损失
-    """
-    model.train()
-    total_loss = 0.0
-    n_batches = 0
-
-    for X_batch, Y_batch in train_loader:
-        # 将数据移到目标设备
-        X_batch = X_batch.to(device)
-        Y_batch = Y_batch.to(device)
-
-        # 前向传播
-        predictions = model(X_batch)           # (batch_size, 3)
-        loss = criterion(predictions, Y_batch)
-
-        # 反向传播 + 参数更新
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
-
-        total_loss += loss.item()
-        n_batches += 1
-
-    avg_train_loss = total_loss / n_batches
-    return avg_train_loss
-
-
-@torch.no_grad()
-def evaluate(
-    model: nn.Module,
-    test_loader: DataLoader,
-    criterion: nn.Module,
-    device: torch.device,
-) -> float:
-    """
-    在测试集上评估模型。
-
-    返回:
-        avg_test_loss: 平均测试损失
-    """
-    model.eval()
-    total_loss = 0.0
-    n_batches = 0
-
-    for X_batch, Y_batch in test_loader:
-        X_batch = X_batch.to(device)
-        Y_batch = Y_batch.to(device)
-
-        predictions = model(X_batch)
-        loss = criterion(predictions, Y_batch)
-
-        total_loss += loss.item()
-        n_batches += 1
-
-    avg_test_loss = total_loss / n_batches
-    return avg_test_loss
-
-
 def train(
     model: nn.Module,
     train_loader: DataLoader,
@@ -270,6 +127,9 @@ def train(
     # 早停机制
     # ------------------------------------------------------------------
     early_stopping = EarlyStopping(patience=PATIENCE)
+
+    train_losses = []
+    test_losses = []
 
     # ------------------------------------------------------------------
     # 训练主循环
@@ -297,6 +157,9 @@ def train(
 
         # 早停检查
         early_stopping(test_loss, model, epoch)
+
+        train_losses.append(train_loss)
+        test_losses.append(test_loss)
 
         # 打印进度
         remark = ""
@@ -336,6 +199,17 @@ def train(
     os.makedirs(os.path.dirname(MODEL_SAVE_PATH), exist_ok=True)
     torch.save(model.state_dict(), MODEL_SAVE_PATH)
     print(f"  ✅ 最佳模型已保存至: {MODEL_SAVE_PATH}")
+
+    # ------------------------------------------------------------------
+    # 绘制损失曲线
+    # ------------------------------------------------------------------
+    plot_loss_curves(
+        train_losses=train_losses,
+        test_losses=test_losses,
+        best_epoch=early_stopping.best_epoch,
+        save_path=LOSS_CURVE_PATH,
+        title="Pure GRU — 训练损失曲线",
+    )
 
 
 # ============================================================================
