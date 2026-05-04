@@ -1,11 +1,17 @@
 """
 ==============================================================================
-纯 GRU 管线 — 统一配置
+纯 Bi-GRU 管线 — 统一配置
 ==============================================================================
 将分散在 preprocess_uav.py / build_sequences.py / train.py / visualize.py
 中的所有超参数与路径配置集中管理，便于维护和参数调优。
 
 修改参数时只需编辑本文件，无需逐一修改各脚本。
+
+★ 与 pure_gru 管线的关键差异:
+    - 模型: Bi-GRU (双向 GRU), 而非单向 GRU
+    - Look_Back: 30 (论文 Table 3: Bi-GRU 最优值), 而非 50
+    - FC 层输入维度: 128 (= 2 × hidden_size), 而非 64
+    - 其余超参数与 pure_gru 完全一致 (论文 Section 2.4.2)
 ==============================================================================
 """
 
@@ -20,7 +26,7 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..
 # 数据路径
 # ============================================================================
 RAW_CSV_PATH = os.path.join(PROJECT_ROOT, "Log Files", "OnboardGPS.csv")
-DATA_DIR = os.path.join(PROJECT_ROOT, "processed_data")
+DATA_DIR = os.path.join(PROJECT_ROOT, "processed_data", "pure_bigru")
 
 TRAIN_DATA_PATH = os.path.join(DATA_DIR, "train_data.npy")
 TEST_DATA_PATH = os.path.join(DATA_DIR, "test_data.npy")
@@ -31,21 +37,21 @@ Y_TRAIN_PATH = os.path.join(DATA_DIR, "Y_train.npy")
 X_TEST_PATH = os.path.join(DATA_DIR, "X_test.npy")
 Y_TEST_PATH = os.path.join(DATA_DIR, "Y_test.npy")
 
-MODEL_SAVE_PATH = os.path.join(DATA_DIR, "best_gru_model.pth")
+MODEL_SAVE_PATH = os.path.join(DATA_DIR, "best_bigru_model.pth")
 MODEL_PATH = MODEL_SAVE_PATH
 
 # ============================================================================
 # 输出路径
 # ============================================================================
 OUTPUT_DIR = DATA_DIR
-OUTPUT_IMG_DIR = os.path.join(PROJECT_ROOT, "output", "pure_gru")
+OUTPUT_IMG_DIR = os.path.join(PROJECT_ROOT, "output", "pure_bigru")
 OUTPUT_IMG_PATH = os.path.join(OUTPUT_IMG_DIR, "trajectory_3d_plot.png")
 OUTPUT_2D_ERROR_PATH = os.path.join(OUTPUT_IMG_DIR, "trajectory_2d_error.png")
 OUTPUT_TIME_PATH = os.path.join(OUTPUT_IMG_DIR, "inference_time_plot.png")
 LOSS_CURVE_PATH = os.path.join(OUTPUT_IMG_DIR, "loss_curve.png")
 
 # ============================================================================
-# 数据预处理参数 (preprocess_uav.py)
+# 数据预处理参数 (preprocess_uav.py) — 与 pure_gru 完全一致
 # ============================================================================
 ORIGINAL_INTERVAL_S = 0.033333
 TARGET_INTERVAL_S = 0.1
@@ -55,7 +61,7 @@ TRAIN_RATIO = 0.8
 # ============================================================================
 # 滑动窗口参数 (build_sequences.py)
 # ============================================================================
-LOOK_BACK = 50
+LOOK_BACK = 30
 FORWARD_LENGTH = 1
 
 # ============================================================================
@@ -68,7 +74,7 @@ OUTPUT_SIZE = 3
 DROPOUT = 0.0
 
 # ============================================================================
-# 训练超参数 (train.py)
+# 训练超参数 (train.py) — 与 pure_gru 完全一致 (论文 Section 2.4.2)
 # ============================================================================
 BATCH_SIZE = 70
 LEARNING_RATE = 1e-3

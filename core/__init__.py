@@ -1,4 +1,5 @@
 from .gru_model import UAVTrajectoryGRU
+from .bigru_model import UAVTrajectoryBiGRU
 from .attention_bigru_model import (
     AttentionBiGRU,
     EncoderLayer,
@@ -9,6 +10,7 @@ from .attention_bigru_model import (
 
 __all__ = [
     "UAVTrajectoryGRU",
+    "UAVTrajectoryBiGRU",
     "AttentionBiGRU",
     "EncoderLayer",
     "DecoderLayer",

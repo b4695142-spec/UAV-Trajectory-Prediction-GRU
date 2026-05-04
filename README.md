@@ -2,7 +2,8 @@
 
 基于门控循环单元 (GRU) 神经网络的无人机 (UAV) 三维飞行轨迹预测系统。本项目针对苏黎世城市微型飞行器 (UMAV/AGZ) 数据集进行建模，基于历史观测序列实现对无人机位置（纬度、经度、海拔）的精准预测。
 
-> **🔬 探索性增强**：本仓库额外提供了两条增强管线：
+> **🔬 探索性增强**：本仓库额外提供了三条增强管线：
+> - **纯 Bi-GRU 管线**（双向 GRU 编码 + 线性投影），遵循论文 *"GRU-based deep learning framework for real-time, accurate, and scalable UAV trajectory prediction"* Section 2.4.1 的 Bi-GRU 架构描述，Look_Back=30（论文 Table 3 最优值）。
 > - **意图识别增强版**（Random Forest 特征筛选 → OvA SVM + Platt Scaling → 拼接至 GRU 输入），用于抑制长预测视距下的离群值。
 > - **Attention-Bi-GRU 增强版**（Bi-GRU 编/解码器 + 动态 Seq2Seq Attention + 每层 GeLU 意图融合），严格遵循论文 *"Research on trajectory prediction algorithm based on unmanned aerial vehicles behavioral intentions"* Section 4.2 的公式 (24)-(32) 与 Figure 9/10。
 >
@@ -13,10 +14,11 @@
 ## 🚀 项目亮点
 
 - **完整序列工程**：涵盖从原始 GPS 数据清洗、降采样、归一化到滑动窗口构建的全流程。
-- **集中化配置管理**：三条管线各自拥有独立的 `config.py`，所有超参数与路径配置集中管理，修改参数只需编辑 `config.py`，无需逐一修改各脚本。
+- **集中化配置管理**：四条管线各自拥有独立的 `config.py`，所有超参数与路径配置集中管理，修改参数只需编辑 `config.py`，无需逐一修改各脚本。
 - **公平性保障**：所有管线均采用"先切分再归一化"策略，Scaler 仅在训练集上 fit，杜绝测试集信息泄漏。
-- **三种模型架构对比**：
+- **四种模型架构对比**：
   - **纯 GRU 基线**：双层单向 GRU + Linear，简洁高效。
+  - **纯 Bi-GRU**：双层双向 GRU + Linear（FC 层输入维度 128 = 2 × hidden_size），Look_Back=30（论文 Table 3 最优值）。
   - **GRU + 意图识别**：在 GRU 输入端拼接 4 维 SVM 机动意图概率向量。
   - **Attention-Bi-GRU + 意图融合**：Bi-GRU 编码器/解码器 + 动态缩放点积 Attention + 每层每步 GeLU 意图条件注入，支持自回归多步解码。
 - **精准评估体系**：除常规 MSE 损失外，还计算了物理含义明确的 MAE、RMSE、Average RMSE、3D 空间欧氏距离误差（Mean / Median / Max / P95 / P99）。
@@ -34,8 +36,9 @@
 ```text
 UAV-Trajectory-Prediction-GRU/
 ├── core/                                # 核心共享代码
-│   ├── __init__.py                      # 模块初始化 (导出 UAVTrajectoryGRU, AttentionBiGRU, EncoderLayer, DecoderLayer, FeedForward, ScaledDotProductAttention)
+│   ├── __init__.py                      # 模块初始化 (导出 UAVTrajectoryGRU, UAVTrajectoryBiGRU, AttentionBiGRU, EncoderLayer, DecoderLayer, FeedForward, ScaledDotProductAttention)
 │   ├── gru_model.py                     # GRU 模型类定义 (UAVTrajectoryGRU, 纯 GRU / 意图 GRU 共用)
+│   ├── bigru_model.py                   # Bi-GRU 模型类定义 (UAVTrajectoryBiGRU, 纯 Bi-GRU 管线使用)
 │   ├── attention_bigru_model.py          # Attention-Bi-GRU 模型类定义 (AttentionBiGRU + 子模块)
 │   └── training_utils.py                # 共享训练基础设施 (EarlyStopping, train_one_epoch, evaluate, get_device, init_weights, plot_loss_curves)
 │
@@ -50,7 +53,15 @@ UAV-Trajectory-Prediction-GRU/
 │   │   ├── train.py                     # [步骤3] 模型训练与早停优化
 │   │   └── visualize.py                 # [步骤4] 测试集推理、多维可视化与耗时评估
 │   │
-│   ├── intent_gru/                      # 管线 2: 意图增强 GRU (探索性)
+│   ├── pure_bigru/                      # 管线 2: 纯 Bi-GRU (论文 Section 2.4.1)
+│   │   ├── __init__.py                  # 管线包初始化
+│   │   ├── config.py                    # 集中配置 (超参数、路径、可视化参数)
+│   │   ├── preprocess_uav.py            # [步骤1] 数据预处理与归一化
+│   │   ├── build_sequences.py           # [步骤2] 滑动窗口序列构建
+│   │   ├── train.py                     # [步骤3] 模型训练与早停优化
+│   │   └── visualize.py                 # [步骤4] 测试集推理与 3D 可视化
+│   │
+│   ├── intent_gru/                      # 管线 3: 意图增强 GRU (探索性)
 │   │   ├── __init__.py                  # 管线包初始化
 │   │   ├── config.py                    # 集中配置 (超参数、路径、可视化参数)
 │   │   ├── intent/                      # 意图识别子模块 (Python 包)
@@ -65,7 +76,7 @@ UAV-Trajectory-Prediction-GRU/
 │   │   ├── visualize_with_intent.py     # [步骤1.7] 增广版推理与可视化
 │   │   └── compare_models.py            # 纯 GRU vs GRU+意图 对比评估
 │   │
-│   └── attention_bigru/                 # 管线 3: Attention-Bi-GRU + 意图融合 (论文完整实现)
+│   └── attention_bigru/                 # 管线 4: Attention-Bi-GRU + 意图融合 (论文完整实现)
 │       ├── __init__.py                  # 管线包初始化
 │       ├── config.py                    # 集中配置 (超参数、路径、可视化参数)
 │       ├── prepare_data.py              # [步骤2.1] 数据准备 (StandardScaler + 意图识别)
@@ -88,6 +99,14 @@ UAV-Trajectory-Prediction-GRU/
 │   ├── X_train.npy / Y_train.npy       # 训练集滑动窗口
 │   ├── X_test.npy / Y_test.npy         # 测试集滑动窗口
 │   ├── best_gru_model.pth              # 纯 GRU 最优模型权重
+│   │
+│   ├── pure_bigru/                      # [自动生成] 纯 Bi-GRU 管线产物 (独立隔离)
+│   │   ├── train_data.npy              # 归一化后的训练集
+│   │   ├── test_data.npy               # 归一化后的测试集
+│   │   ├── scaler_params.npz           # Min-Max 缩放参数
+│   │   ├── X_train.npy / Y_train.npy   # 训练集滑动窗口
+│   │   ├── X_test.npy / Y_test.npy     # 测试集滑动窗口
+│   │   └── best_bigru_model.pth        # 纯 Bi-GRU 最优模型权重
 │   │
 │   ├── intent/                          # [自动生成] 意图增强版产物 (与纯 GRU 完全隔离)
 │   │   ├── X_train_intent.npy / Y_train_intent.npy
@@ -132,6 +151,10 @@ UAV-Trajectory-Prediction-GRU/
     │   ├── trajectory_3d_plot.png       # 3D 轨迹对比图
     │   └── loss_curve.png              # 训练损失曲线
     │
+    ├── pure_bigru/                      # 纯 Bi-GRU 管线输出
+    │   ├── trajectory_3d_plot.png       # 3D 轨迹对比图
+    │   └── loss_curve.png              # 训练损失曲线
+    │
     ├── intent_gru/                      # 意图 GRU 管线输出
     │   ├── trajectory_3d_plot_intent.png # 3D 轨迹对比图
     │   └── loss_curve_intent.png       # 训练损失曲线
@@ -166,11 +189,11 @@ pip install torch numpy pandas scikit-learn matplotlib
 
 | 依赖库            | 用途                                       | 使用模块                                                                                                                                                                                                                                                          |
 | -------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `torch`        | GRU / Attention-Bi-GRU 模型构建、训练与推理        | `core/gru_model.py`, `core/attention_bigru_model.py`, `core/training_utils.py`, `pipelines/pure_gru/train.py`, `pipelines/pure_gru/visualize.py`, `pipelines/intent_gru/train_with_intent.py`, `pipelines/intent_gru/visualize_with_intent.py`, `pipelines/intent_gru/compare_models.py`, `pipelines/attention_bigru/train.py`, `pipelines/attention_bigru/visualize.py`, `pipelines/attention_bigru/compare_all.py` |
+| `torch`        | GRU / Bi-GRU / Attention-Bi-GRU 模型构建、训练与推理 | `core/gru_model.py`, `core/bigru_model.py`, `core/attention_bigru_model.py`, `core/training_utils.py`, `pipelines/pure_gru/train.py`, `pipelines/pure_gru/visualize.py`, `pipelines/pure_bigru/train.py`, `pipelines/pure_bigru/visualize.py`, `pipelines/intent_gru/train_with_intent.py`, `pipelines/intent_gru/visualize_with_intent.py`, `pipelines/intent_gru/compare_models.py`, `pipelines/attention_bigru/train.py`, `pipelines/attention_bigru/visualize.py`, `pipelines/attention_bigru/compare_all.py` |
 | `numpy`        | 数组运算与数据存储                                | 全部模块                                                                                                                                                                                                                          |
-| `pandas`       | CSV 读取与数据清洗                              | `pipelines/pure_gru/preprocess_uav.py`, `pipelines/intent_gru/intent/feature_extractor.py`                                                                                                                                    |
-| `scikit-learn` | MinMaxScaler / StandardScaler 归一化、RF、SVM | `pipelines/pure_gru/preprocess_uav.py`, `pipelines/intent_gru/prepare_intent.py`, `pipelines/intent_gru/intent/rf_selector.py`, `pipelines/intent_gru/intent/svm_classifier.py`, `pipelines/attention_bigru/prepare_data.py` |
-| `matplotlib`   | 3D/2D 可视化绘图                              | `pipelines/pure_gru/visualize.py`, `pipelines/intent_gru/visualize_with_intent.py`, `pipelines/intent_gru/compare_models.py`, `pipelines/attention_bigru/visualize.py`, `pipelines/attention_bigru/compare_all.py`           |
+| `pandas`       | CSV 读取与数据清洗                              | `pipelines/pure_gru/preprocess_uav.py`, `pipelines/pure_bigru/preprocess_uav.py`, `pipelines/intent_gru/intent/feature_extractor.py`                                                                                                                                    |
+| `scikit-learn` | MinMaxScaler / StandardScaler 归一化、RF、SVM | `pipelines/pure_gru/preprocess_uav.py`, `pipelines/pure_bigru/preprocess_uav.py`, `pipelines/intent_gru/prepare_intent.py`, `pipelines/intent_gru/intent/rf_selector.py`, `pipelines/intent_gru/intent/svm_classifier.py`, `pipelines/attention_bigru/prepare_data.py` |
+| `matplotlib`   | 3D/2D 可视化绘图                              | `pipelines/pure_gru/visualize.py`, `pipelines/pure_bigru/visualize.py`, `pipelines/intent_gru/visualize_with_intent.py`, `pipelines/intent_gru/compare_models.py`, `pipelines/attention_bigru/visualize.py`, `pipelines/attention_bigru/compare_all.py`           |
 
 
 ---
@@ -205,7 +228,7 @@ python build_sequences.py
 - **输入**：步骤 1 生成的 `train_data.npy` 和 `test_data.npy`
 - **配置**：
   - 观测窗口 `Look_Back = 50`（即 5.0s 历史数据）
-  - 预测步长 `Forward_Length = 0`（即当前时刻的目标位置）
+  - 预测步长 `Forward_Length = 1`（即下一时刻的目标位置）
 - **滑动窗口公式**：对于时间点 t，输入 `data[t-Look_Back+1 : t+1]`，目标 `data[t+Forward_Length]`
 - **输出**：`processed_data/X_train.npy`、`Y_train.npy`、`X_test.npy`、`Y_test.npy`
 
@@ -270,7 +293,37 @@ Linear (64 → 3)
 | 模型类            | `UAVTrajectoryGRU`（定义于 `core/gru_model.py`） |
 
 
-### 模型 2：AttentionBiGRU（Attention-Bi-GRU + 意图融合）
+### 模型 2：UAVTrajectoryBiGRU（纯 Bi-GRU）
+
+遵循论文 *"GRU-based deep learning framework for real-time, accurate, and scalable UAV trajectory prediction"* Section 2.4.1 的 Bi-GRU 架构描述：
+
+> "The Bi-GRU architecture ultimately integrates bidirectional processing with the GRU's streamlined gating mechanism. This model employs two bidirectional GRU layers, each with 64 hidden units per direction, to forecast latitude, longitude, and altitude via a fully linked layer with three output neurons."
+
+```
+输入 (batch_size, 30, 3)
+    ↓
+Bi-GRU × 2 层 (hidden_size=64 per direction, bidirectional=True, dropout=0.0)
+    ↓  ← 取最后一个时间步的双向隐藏状态拼接 gru_out[:, -1, :]
+Linear (128 → 3)    [128 = 2 × hidden_size]
+    ↓  ← 无激活函数，线性投影
+输出 (batch_size, 3)  →  t 时刻的 (lat, lon, alt)
+```
+
+
+| 组件              | 参数                                            |
+| --------------- | --------------------------------------------- |
+| 输入维度            | 3 (纬度, 经度, 海拔)                                |
+| Bi-GRU 隐藏层维度    | 64 (每个方向)                                     |
+| Bi-GRU 堆叠层数     | 2                                             |
+| Bi-GRU 层间 Dropout | 0.0                                          |
+| FC 层输入维度         | 128 (= 2 × hidden_size, 双向拼接)                 |
+| 输出维度            | 3 (预测纬度, 经度, 海拔)                              |
+| 权重初始化           | Xavier Uniform (Glorot)                       |
+| 偏置初始化           | 全零                                            |
+| 模型类             | `UAVTrajectoryBiGRU`（定义于 `core/bigru_model.py`） |
+
+
+### 模型 3：AttentionBiGRU（Attention-Bi-GRU + 意图融合）
 
 严格遵循论文 *"Research on trajectory prediction algorithm based on unmanned aerial vehicles behavioral intentions"* Section 4.2 的公式 (24)-(32) 与 Figure 9/10：
 
@@ -354,7 +407,7 @@ Linear (64 → 3)
 
 ## ⚙️ 配置参数速查
 
-三条管线各自拥有独立的 `config.py`，所有超参数与路径配置集中管理。修改参数时只需编辑对应的 `config.py`，无需逐一修改各脚本。
+四条管线各自拥有独立的 `config.py`，所有超参数与路径配置集中管理。修改参数时只需编辑对应的 `config.py`，无需逐一修改各脚本。
 
 ### 纯 GRU 管线 (`pipelines/pure_gru/config.py`)
 
@@ -366,7 +419,7 @@ Linear (64 → 3)
 | `DOWNSAMPLE_FACTOR`   | 3        | 降采样因子 (自动计算)   |
 | `TRAIN_RATIO`         | 0.8      | 训练集比例          |
 | `LOOK_BACK`           | 50       | 历史观测步长         |
-| `FORWARD_LENGTH`      | 0        | 未来预测步长         |
+| `FORWARD_LENGTH`      | 1        | 未来预测步长         |
 | `INPUT_SIZE`          | 3        | 输入特征维度         |
 | `HIDDEN_SIZE`         | 64       | GRU 隐藏层维度      |
 | `NUM_LAYERS`          | 2        | GRU 层数         |
@@ -378,6 +431,30 @@ Linear (64 → 3)
 | `PATIENCE`            | 15       | 早停耐心值          |
 | `PLOT_START`          | 0        | 绘图起始索引         |
 | `PLOT_END`            | None     | 绘图结束索引         |
+
+
+### 纯 Bi-GRU 管线 (`pipelines/pure_bigru/config.py`)
+
+
+| 参数                    | 默认值      | 说明                                           |
+| --------------------- | -------- | -------------------------------------------- |
+| `ORIGINAL_INTERVAL_S` | 0.033333 | 原始采样间隔 (秒)                                   |
+| `TARGET_INTERVAL_S`   | 0.1      | 目标采样间隔 (秒)                                   |
+| `DOWNSAMPLE_FACTOR`   | 3        | 降采样因子 (自动计算)                                 |
+| `TRAIN_RATIO`         | 0.8      | 训练集比例                                        |
+| `LOOK_BACK`           | 30       | 历史观测步长 (论文 Table 3: Bi-GRU 最优值)             |
+| `FORWARD_LENGTH`      | 1        | 未来预测步长                                       |
+| `INPUT_SIZE`          | 3        | 输入特征维度                                       |
+| `HIDDEN_SIZE`         | 64       | Bi-GRU 每个方向的隐藏层维度                            |
+| `NUM_LAYERS`          | 2        | Bi-GRU 层数                                    |
+| `OUTPUT_SIZE`         | 3        | 输出维度                                         |
+| `DROPOUT`             | 0.0      | Bi-GRU 层间 Dropout                            |
+| `BATCH_SIZE`          | 70       | 批次大小 (与 pure_gru 一致, 论文 Section 2.4.2)      |
+| `LEARNING_RATE`       | 1e-3     | Adam 学习率 (与 pure_gru 一致, 论文 Section 2.4.2)  |
+| `MAX_EPOCHS`          | 500      | 最大训练轮数 (与 pure_gru 一致, 论文 Section 2.4.2)    |
+| `PATIENCE`            | 15       | 早停耐心值                                        |
+| `PLOT_START`          | 0        | 绘图起始索引                                       |
+| `PLOT_END`            | None     | 绘图结束索引                                       |
 
 
 ### 意图增强 GRU 管线 (`pipelines/intent_gru/config.py`)
@@ -423,7 +500,7 @@ Linear (64 → 3)
 | `DOWNSAMPLE_FACTOR`            | 3                    | 降采样因子 (自动计算)                                    |
 | `TRAIN_RATIO`                  | 0.8                  | 训练集比例                                           |
 | `LOOK_BACK`                    | 50                   | 历史观测步长                                          |
-| `FORWARD_LENGTH`               | 0                    | 未来预测步长                                          |
+| `FORWARD_LENGTH`               | 1                    | 未来预测步长                                          |
 | `RF_N_ESTIMATORS`              | 200                  | 随机森林决策树数量                                       |
 | `RF_CRITERION`                 | "entropy"            | 随机森林分裂判据                                        |
 | `RF_CUMULATIVE_THRESHOLD`      | 0.80                 | RF 累计重要性保留阈值                                    |
@@ -462,6 +539,13 @@ Linear (64 → 3)
 1. **训练损失曲线** (`output/pure_gru/loss_curve.png`)：展示训练损失与验证损失随 Epoch 的变化趋势，标注最佳 Epoch 与对应损失值。
 2. **3D 轨迹对比图** (`output/pure_gru/trajectory_3d_plot.png`)：展示无人机在三维空间中的实际机动路径（灰色虚线）与 GRU 预测路径（红色实线），标记起点（绿色圆点）与终点（蓝色三角）。
 
+### 纯 Bi-GRU 管线
+
+运行 `train.py` 和 `visualize.py` 后将生成以下图表：
+
+1. **训练损失曲线** (`output/pure_bigru/loss_curve.png`)：展示训练损失与验证损失随 Epoch 的变化趋势，标注最佳 Epoch 与对应损失值。
+2. **3D 轨迹对比图** (`output/pure_bigru/trajectory_3d_plot.png`)：展示无人机在三维空间中的实际机动路径（灰色虚线）与 Bi-GRU 预测路径（红色实线），标记起点（绿色圆点）与终点（蓝色三角）。
+
 ### 意图增强 GRU 管线
 
 运行 `train_with_intent.py` 和 `visualize_with_intent.py` 后将生成以下图表：
@@ -483,12 +567,84 @@ Linear (64 → 3)
 - **数据集放置**：运行步骤 1 前，需将 `OnboardGPS.csv` 放置于 `Log Files/` 目录下。该文件来自 UMAV 数据集，需自行下载。
 - **时序切分**：本项目为连续时间序列任务，训练集/测试集严格按时间顺序划分，**不可使用随机打乱切分**。
 - **归一化公平性**：当前版本先切分再归一化（Scaler 仅在训练集上 fit），杜绝测试集信息泄漏。请勿将顺序改回"先归一化再切分"。
-- **归一化方法差异**：纯 GRU 和意图 GRU 管线使用 MinMaxScaler [0,1]；Attention-Bi-GRU 管线使用 StandardScaler（论文 Equation 8 Z-score）。反归一化时需使用各自对应的逆变换。
+- **归一化方法差异**：纯 GRU、纯 Bi-GRU 和意图 GRU 管线使用 MinMaxScaler [0,1]；Attention-Bi-GRU 管线使用 StandardScaler（论文 Equation 8 Z-score）。反归一化时需使用各自对应的逆变换。
 - **原始数据列名**：`OnboardGPS.csv` 中时间戳列名拼写为 `Timpstemp`（原始数据的拼写错误），代码已做兼容处理。
 - **中文字体**：可视化脚本已内置跨平台中文字体自动检测机制（支持 Windows/Linux/macOS），运行时会自动选择系统中可用的中文字体。若系统中未安装任何候选中文字体，程序会打印警告但不会中断运行，图表中的中文可能显示为方块，建议安装对应平台的常用中文字体。
 - **GPU 加速**：训练与推理脚本自动检测 CUDA 设备。在 GPU 环境下推理耗时会显著降低。
 - **执行顺序**：各管线的脚本存在严格的依赖关系，必须按标注的步骤顺序依次执行，不可跳步。
 - **Python 版本**：Attention-Bi-GRU 模型代码使用了 `X | None` 类型注解语法，需要 Python >= 3.10。
+
+---
+
+## 🚁 纯 Bi-GRU 管线
+
+基于论文 *"GRU-based deep learning framework for real-time, accurate, and scalable UAV trajectory prediction"* Section 2.4.1 的 Bi-GRU 架构实现。与纯 GRU 管线的核心差异在于使用双向 GRU 替代单向 GRU，并采用论文 Table 3 中 Bi-GRU 的最优 Look_Back=30。
+
+### 与纯 GRU 管线的关键差异
+
+
+| 维度         | 纯 GRU              | 纯 Bi-GRU                         |
+| ---------- | ------------------ | --------------------------------- |
+| 模型架构       | 单向 GRU → Linear    | 双向 GRU → Linear                  |
+| GRU 方向     | 单向 (bidirectional=False) | 双向 (bidirectional=True)    |
+| FC 层输入维度   | 64 (= hidden_size) | 128 (= 2 × hidden_size, 双向拼接)    |
+| Look_Back  | 50                 | 30 (论文 Table 3: Bi-GRU 最优值)      |
+| 数据产物目录     | `processed_data/`   | `processed_data/pure_bigru/`      |
+
+### 运行流程
+
+```bash
+cd pipelines/pure_bigru
+```
+
+#### 步骤 1：数据预处理
+
+```bash
+python preprocess_uav.py
+```
+
+- **输入**：`Log Files/OnboardGPS.csv`
+- **处理逻辑**：与纯 GRU 管线完全一致（提取 lat/lon/alt → 降采样 30Hz→10Hz → 80:20 时序切分 → MinMaxScaler [0,1] 仅训练集 fit）
+- **输出**：`processed_data/pure_bigru/train_data.npy`、`processed_data/pure_bigru/test_data.npy`、`processed_data/pure_bigru/scaler_params.npz`
+
+#### 步骤 2：构造序列数据
+
+```bash
+python build_sequences.py
+```
+
+- **输入**：步骤 1 生成的 `train_data.npy` 和 `test_data.npy`
+- **配置**：
+  - 观测窗口 `Look_Back = 30`（论文 Table 3: Bi-GRU 最优值，即 3.0s 历史数据）
+  - 预测步长 `Forward_Length = 1`（即下一时刻的目标位置）
+- **输出**：`processed_data/pure_bigru/X_train.npy`、`Y_train.npy`、`X_test.npy`、`Y_test.npy`
+
+#### 步骤 3：执行模型训练
+
+```bash
+python train.py
+```
+
+- **输入**：步骤 2 生成的滑动窗口序列数据
+- **训练参数**（与纯 GRU 管线一致，论文 Section 2.4.2）：
+  - Batch Size = 70
+  - 学习率 = 1e-3（Adam 优化器）
+  - 最大 Epochs = 500
+  - 损失函数 = MSELoss
+  - 早停 Patience = 15
+- **输出**：`processed_data/pure_bigru/best_bigru_model.pth`、`output/pure_bigru/loss_curve.png`
+
+#### 步骤 4：结果验证与可视化
+
+```bash
+python visualize.py
+```
+
+- **输入**：测试集数据 + 最佳模型权重 + 归一化参数
+- **执行步骤**：
+  1. 加载测试集与模型权重，执行推理
+  2. 反归一化，还原为真实世界坐标，计算各项误差指标
+  3. 绘制 3D 轨迹对比图 → `output/pure_bigru/trajectory_3d_plot.png`
 
 ---
 
@@ -616,19 +772,21 @@ python compare_models.py
 ### 与其他管线的关键差异
 
 
-| 维度         | 纯 GRU                     | 意图 GRU                          | Attention-Bi-GRU                                       |
-| ---------- | -------------------------- | -------------------------------- | ------------------------------------------------------ |
-| 模型架构       | 单向 GRU → Linear            | 单向 GRU → Linear (输入增广)           | Bi-GRU 编/解码器 + 动态 Attention + 每层意图融合                   |
-| 意图融合方式     | 无                          | 输入端拼接 4 维概率向量                    | 每层每步 GeLU 变换 + Concat 条件注入 (论文公式 31-32)               |
-| 注意力机制      | 无                          | 无                                | 动态 Seq2Seq 缩放点积 Attention (Q 每步重新计算, 论文公式 27/30)      |
-| 归一化方法      | MinMaxScaler [0,1]         | 位置列 MinMax / 其他列 Standard        | **StandardScaler (论文 Equation 8)**                     |
-| 编/解码层数     | 2 层 GRU                    | 2 层 GRU                          | 编码器 4 层 + 解码器 4 层                                      |
-| Dropout    | 0.0                        | 0.0                              | 0.2 (论文 Table 3)                                      |
-| 学习率        | 1e-3                       | 1e-3                             | 5e-4                                                   |
-| Batch Size | 70                         | 70                               | 64 (论文 Table 3)                                        |
-| Max Epochs | 500                        | 500                              | 300 (论文 Table 3)                                       |
-| 解码步数       | 1                          | 1                                | 1 (与 pure_gru 对齐; 架构支持多步配置)                      |
-| 数据产物目录     | `processed_data/`          | `processed_data/intent/`         | `processed_data/attention_bigru/`                      |
+| 维度         | 纯 GRU                     | 纯 Bi-GRU                  | 意图 GRU                          | Attention-Bi-GRU                                       |
+| ---------- | -------------------------- | ------------------------- | -------------------------------- | ------------------------------------------------------ |
+| 模型架构       | 单向 GRU → Linear            | 双向 GRU → Linear           | 单向 GRU → Linear (输入增广)           | Bi-GRU 编/解码器 + 动态 Attention + 每层意图融合                   |
+| 意图融合方式     | 无                          | 无                         | 输入端拼接 4 维概率向量                    | 每层每步 GeLU 变换 + Concat 条件注入 (论文公式 31-32)               |
+| 注意力机制      | 无                          | 无                         | 无                                | 动态 Seq2Seq 缩放点积 Attention (Q 每步重新计算, 论文公式 27/30)      |
+| 归一化方法      | MinMaxScaler [0,1]         | MinMaxScaler [0,1]        | 位置列 MinMax / 其他列 Standard        | **StandardScaler (论文 Equation 8)**                     |
+| Look_Back  | 50                         | 30 (论文 Table 3)           | 50                               | 50                                                     |
+| 编/解码层数     | 2 层 GRU                    | 2 层 Bi-GRU                | 2 层 GRU                          | 编码器 4 层 + 解码器 4 层                                      |
+| FC 层输入维度   | 64                         | 128 (= 2 × hidden_size)   | 64                               | —                                                      |
+| Dropout    | 0.0                        | 0.0                       | 0.0                              | 0.2 (论文 Table 3)                                      |
+| 学习率        | 1e-3                       | 1e-3                      | 1e-3                             | 5e-4                                                   |
+| Batch Size | 70                         | 70                        | 70                               | 64 (论文 Table 3)                                        |
+| Max Epochs | 500                        | 500                       | 500                              | 300 (论文 Table 3)                                       |
+| 解码步数       | 1                          | 1                         | 1                                | 1 (与 pure_gru 对齐; 架构支持多步配置)                      |
+| 数据产物目录     | `processed_data/`          | `processed_data/pure_bigru/` | `processed_data/intent/`         | `processed_data/attention_bigru/`                      |
 
 ### 运行流程
 
@@ -742,6 +900,6 @@ Attention-Bi-GRU 管线与纯 GRU 基线之间存在以下有意偏差，在解�
 
 | 编号  | 文献信息                                                                                                                                                              | 对应技术模块                                                                                                   |
 | --- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| 1   | Yoon S, Jang D, Yoon H, et al. GRU-based deep learning framework for real-time, accurate, and scalable UAV trajectory prediction[J]. Drones, 2025, 9(2): 142-168.  | **纯 GRU 管线**（双层 GRU 架构、滑动窗口序列构建、训练与早停策略）的实现方法参考自该论文；**意图识别增强管线**（将机动意图概率向量拼接至 GRU 输入以抑制离群值）的核心思想同样源自该论文。 |
+| 1   | Yoon S, Jang D, Yoon H, et al. GRU-based deep learning framework for real-time, accurate, and scalable UAV trajectory prediction[J]. Drones, 2025, 9(2): 142-168.  | **纯 GRU 管线**（双层 GRU 架构、滑动窗口序列构建、训练与早停策略）的实现方法参考自该论文；**纯 Bi-GRU 管线**（双向 GRU 架构、Look_Back=30 最优值）的架构描述参考自该论文 Section 2.4.1；**意图识别增强管线**（将机动意图概率向量拼接至 GRU 输入以抑制离群值）的核心思想同样源自该论文。 |
 | 2   | Cao Y, Zhang J D, Shi G Q, et al. Research on trajectory prediction algorithm based on unmanned aerial vehicles behavioral intentions[J]. Drones, 2025, 9(9): 640. | 意图识别子模块中机动类别划分（平飞/转弯/爬升/俯冲）与 RF+SVM 级联分类方案的设计参考了该论文的行为意图建模思路；**Attention-Bi-GRU 管线**的完整 Seq2Seq 架构（编码器/解码器 + 动态 Attention + 每层 GeLU 意图融合）严格遵循该论文 Section 4.2 公式 (24)-(32) 与 Figure 9/10。 |
 | 3   | Majdik A L, Till C, Scaramuzza D. The Zurich urban micro aerial vehicle dataset[J]. The International Journal of Robotics Research, 2017, 36(3): 269-273.          | 实验所用飞行数据集（`OnboardGPS.csv`）来源于该论文公开的 UMAV/AGZ 数据集。                                                       |

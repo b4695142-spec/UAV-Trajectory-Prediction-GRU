@@ -202,6 +202,13 @@ def plot_loss_curves(
         bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='#2ca02c', alpha=0.9),
     )
 
+    all_losses = train_losses + test_losses
+    y_min = min(all_losses)
+    y_max = max(all_losses)
+    y_range = y_max - y_min
+    margin = y_range * 0.08 if y_range > 0 else y_max * 0.1
+    ax.set_ylim(y_min - margin, y_max + margin)
+
     ax.set_xlabel('Epoch', fontsize=12)
     ax.set_ylabel('MSE Loss', fontsize=12)
     ax.set_title(title, fontsize=14, fontweight='bold', pad=12)
