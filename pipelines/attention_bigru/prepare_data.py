@@ -1,12 +1,12 @@
 """
 ==============================================================================
-UAV 轨迹预测 — Attention-Bi-GRU 数据准备 (StandardScaler + 意图识别)
+UAV 轨迹预测 — Attention-Bi-GRU 数据准备 (MinMaxScaler + 意图识别)
 ==============================================================================
 本脚本是 Attention-Bi-GRU 管线的入口，负责:
 
     1. 动态提取 OnboardGPS.csv 中的数值特征 + 派生运动学特征
-    2. ★ 全部特征使用 StandardScaler 归一化 (论文 Equation 8 Z-score)
-       —— 这是与 intent_gru/prepare_intent.py 的核心差异 (后者位置列用 MinMax)
+    2. ★ 全部特征使用 MinMaxScaler [0,1] 归一化 (与 pure_bigru 完全一致,
+       保证对比公平性)
     3. 自动生成 4 类机动伪标签 (平飞 / 转弯 / 爬升 / 俯冲)
     4. Random Forest 特征重要性评估 → 保留累计贡献率 80% 的核心特征
        ★ 是否剔除"标签生成特征" (alt_rate / heading_rate) 由配置项
@@ -16,17 +16,17 @@ UAV 轨迹预测 — Attention-Bi-GRU 数据准备 (StandardScaler + 意图识�
        ★ 使用 5-Fold OOF 生成训练集概率，消除训练/测试分布偏移
     6. 对全部时间步计算 4 维意图概率向量
     7. 构建增广滑动窗口序列:
-            模型输入 = [StandardScaler(lat,lon,alt) ⊕ StandardScaler(RF 筛选的非位置特征) ⊕ SVM 4 维概率]
-       Y 为 StandardScaler 归一化后的 (lat, lon, alt)，反归一化时使用 target_scaler.inverse_transform()。
+            模型输入 = [MinMaxScaler(lat,lon,alt) ⊕ MinMaxScaler(RF 筛选的非位置特征) ⊕ SVM 4 维概率]
+       Y 为 MinMaxScaler 归一化后的 (lat, lon, alt)，反归一化时使用 inverse_minmax。
 
 所有产物保存至 `processed_data/attention_bigru/`，与 intent_gru 完全解耦。
 
 【与 intent_gru/prepare_intent.py 的核心差异】
     | 维度       | intent_gru/prepare_intent.py | attention_bigru/prepare_data.py    |
-    | -------- | ---------------------------- | ---------------------------------- |
-    | 位置列归一化   | MinMaxScaler [0, 1]          | ★ StandardScaler (论文 Eq.8)         |
-    | 其他列归一化   | StandardScaler               | StandardScaler (一致)                |
-    | 目标 Y 归一化 | MinMaxScaler [0, 1]          | ★ StandardScaler (论文 Eq.8)         |
+    | ---------- | ---------------------------- | ---------------------------------- |
+    | 位置列归一化   | MinMaxScaler [0, 1]          | MinMaxScaler [0, 1] (一致)          |
+    | 其他列归一化   | StandardScaler               | MinMaxScaler [0, 1] (统一)          |
+    | 目标 Y 归一化 | MinMaxScaler [0, 1]          | MinMaxScaler [0, 1] (一致)          |
     | 产物目录     | processed_data/intent/       | processed_data/attention_bigru/    |
     | 意图识别子模块  | 直接调用                       | import 复用 (pipelines.intent_gru.intent) |
 ==============================================================================
@@ -129,7 +129,7 @@ def _format_selected_layout(
 # ============================================================================
 def main():
     print("\n" + "▓" * 60)
-    print("  Attention-Bi-GRU 数据准备 — StandardScaler (论文 Eq.8) 版本")
+    print("  Attention-Bi-GRU 数据准备 — MinMaxScaler [0,1] 版本")
     print("▓" * 60 + "\n")
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -145,11 +145,11 @@ def main():
     )
 
     # ------------------------------------------------------------------
-    # 2) 构造回归目标 (lat, lon, alt) 并做 StandardScaler 归一化
-    # ★ 论文 Equation 8: X_scaled(i,j) = (X(i,j) - μ_j) / σ_j
+    # 2) 构造回归目标 (lat, lon, alt) 并做 MinMaxScaler [0,1] 归一化
+    # ★ MinMaxScaler: X_scaled = (X - min) / (max - min), 映射到 [0, 1]
     # ------------------------------------------------------------------
     print("=" * 60)
-    print("  [attn_bigru] 构造回归目标 — StandardScaler 归一化 (lat, lon, alt)")
+    print("  [attn_bigru] 构造回归目标 — MinMaxScaler [0,1] 归一化 (lat, lon, alt)")
     print("=" * 60)
 
     missing = [c for c in POSITION_COLS if c not in df_down.columns]
@@ -159,7 +159,7 @@ def main():
     position = df_down[POSITION_COLS].to_numpy(dtype=np.float64)   # (N, 3)
     position_train, position_test = _split_by_time(position, TRAIN_RATIO)
 
-    # ★ 仅在训练集上 fit StandardScaler, 消除测试集泄漏
+    # ★ 仅在训练集上 fit MinMaxScaler, 消除测试集泄漏
     target_scaler = MinMaxScaler()
     target_scaler.fit(position_train)
     target_all = target_scaler.transform(position)
@@ -183,13 +183,14 @@ def main():
           f"{label_info['leak_features']}\n")
 
     # ------------------------------------------------------------------
-    # 4) ★ 全部特征列均使用 StandardScaler 归一化 (论文 Equation 8)
+    # 4) ★ 全部特征列均使用 MinMaxScaler [0,1] 归一化 (与 pure_bigru 一致,
+    #    保证对比公平性)
     #    与 intent_gru/prepare_intent.py 的差异:
     #      - intent_gru: 位置列 MinMaxScaler / 其他列 StandardScaler
-    #      - attn_bigru: 位置列 StandardScaler / 其他列 StandardScaler  (统一)
+    #      - attn_bigru: 位置列 MinMaxScaler / 其他列 MinMaxScaler (统一)
     # ------------------------------------------------------------------
     print("=" * 60)
-    print("  [attn_bigru] 全部特征 StandardScaler 归一化 (论文 Equation 8)")
+    print("  [attn_bigru] 全部特征 MinMaxScaler [0,1] 归一化 (与 pure_bigru 一致)")
     print("=" * 60)
 
     # 位置列在 features 矩阵中的索引 (用于产物报告)
@@ -198,12 +199,12 @@ def main():
         i for i in range(len(feature_names)) if i not in set(pos_indices)
     ]
 
-    print(f"  位置列索引 (StandardScaler): {pos_indices}  名称: {POSITION_COLS}")
-    print(f"  其他列索引 (StandardScaler): 共 {len(other_indices)} 列")
+    print(f"  位置列索引 (MinMaxScaler): {pos_indices}  名称: {POSITION_COLS}")
+    print(f"  其他列索引 (MinMaxScaler): 共 {len(other_indices)} 列")
 
     features_train, features_test = _split_by_time(features, TRAIN_RATIO)
 
-    # ★ 一次性对全部列 fit + transform (统一使用 StandardScaler)
+    # ★ 一次性对全部列 fit + transform (统一使用 MinMaxScaler)
     feat_scaler = MinMaxScaler()
     feat_scaler.fit(features_train)
     features_scaled_train = feat_scaler.transform(features_train)
@@ -386,7 +387,7 @@ def main():
     np.save(os.path.join(OUTPUT_DIR, "labels_train.npy"), labels_train)
     np.save(os.path.join(OUTPUT_DIR, "labels_test.npy"), labels_test)
 
-    # ★ StandardScaler 参数保存为 .npz (供 visualize / compare 反归一化)
+    # ★ MinMaxScaler 参数保存为 .npz (供 visualize / compare 反归一化)
     np.savez(
         os.path.join(OUTPUT_DIR, "scaler_params.npz"),
         data_min=target_scaler.data_min_,
@@ -395,7 +396,7 @@ def main():
         feat_max=feat_scaler.data_max_,
     )
 
-    # 同时保存完整的 sklearn StandardScaler 实例 (.pkl) 便于完整反演
+    # 同时保存完整的 sklearn MinMaxScaler 实例 (.pkl) 便于完整反演
     with open(os.path.join(OUTPUT_DIR, "target_std_scaler.pkl"), "wb") as fp:
         pickle.dump(target_scaler, fp)
     with open(os.path.join(OUTPUT_DIR, "feature_std_scaler.pkl"), "wb") as fp:
@@ -407,7 +408,7 @@ def main():
 
     # 汇总 JSON
     report = {
-        "version": "attn_bigru-v1-standardscaler",
+        "version": "attn_bigru-v1-minmaxscaler",
         "look_back": LOOK_BACK,
         "forward_length": FORWARD_LENGTH,
         "downsample_factor": DOWNSAMPLE_FACTOR,

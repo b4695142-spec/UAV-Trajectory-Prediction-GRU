@@ -3,10 +3,10 @@
 UAV 轨迹预测 — Attention-Bi-GRU 推理与可视化
 ==============================================================================
 功能:
-    1. 加载 prepare_data.py 生成的 StandardScaler 归一化测试集 + 训练好的模型权重
+    1. 加载 prepare_data.py 生成的 MinMaxScaler 归一化测试集 + 训练好的模型权重
     2. 执行推理 (拆分增广 X 中的结构性特征 / 意图概率)
-    3. ★ 使用 StandardScaler 反归一化 (论文 Equation 8 对应的逆变换)
-       —— 与 pure_gru / intent_gru 使用 MinMaxScaler 反归一化的关键差异
+    3. ★ 使用 MinMaxScaler 反归一化 (与 pure_bigru 使用相同的反归一化方法,
+       保证对比公平性)
     4. 绘制 3D 轨迹对比图 / 2D 误差曲线 / 单次推理耗时图
 
 输出:
@@ -145,7 +145,7 @@ def load_and_predict() -> tuple:
 
 
 # ============================================================================
-# 步骤 2: StandardScaler 反归一化
+# 步骤 2: MinMaxScaler 反归一化
 # ============================================================================
 def inverse_minmax(data: np.ndarray, data_min: np.ndarray, data_max: np.ndarray) -> np.ndarray:
     """

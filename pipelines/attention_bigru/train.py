@@ -3,18 +3,18 @@
 UAV 轨迹预测 — Attention-Bi-GRU 训练脚本
 ==============================================================================
 功能:
-    1. 加载 prepare_data.py 生成的 StandardScaler 归一化增广数据
+    1. 加载 prepare_data.py 生成的 MinMaxScaler 归一化增广数据
        (X 包含 "[位置 ∪ RF 筛选列] ⊕ 4 维 SVM 概率")
     2. 拆分增广特征 X 中的 "结构性特征" 与 "意图概率" 两部分
     3. 实例化 AttentionBiGRU 模型 (论文 Table 3 超参数)
     4. Xavier Uniform 权重初始化
-    5. MSELoss + Adam(lr=5e-4) + EarlyStopping(patience=15) 训练
+    5. MSELoss + Adam(lr=1e-3) + EarlyStopping(patience=15) 训练
     6. 保存最佳模型至 processed_data/attention_bigru/best_attention_bigru_model.pth
 
-训练参数 (严格遵循论文 Table 3):
-    - Batch Size:  64
-    - 学习率:      5e-4 (Adam)
-    - 最大 Epochs: 300
+训练参数 (与 pure_bigru 完全一致, 保证对比公平性):
+    - Batch Size:  70
+    - 学习率:      1e-3 (Adam)
+    - 最大 Epochs: 500
     - 早停 patience: 15
     - 损失函数:    MSELoss
 ==============================================================================
@@ -75,7 +75,7 @@ class AttentionBiGRUDataset(Dataset):
     每个样本返回 (x_feat, x_intent, y) 三元组:
         x_feat   : (look_back, input_size)   结构性特征 (位置 + RF 筛选列)
         x_intent : (look_back, n_intent)     SVM 概率向量序列
-        y        : (output_size,)            目标 (lat, lon, alt, StandardScaler)
+        y        : (output_size,)            目标 (lat, lon, alt, MinMaxScaler)
     """
 
     def __init__(
@@ -250,7 +250,7 @@ def main():
     init_weights(model)
     print(f"  ✅ Xavier Uniform 权重初始化完成 (dropout = {DROPOUT})")
     print(f"  编码器层数 N_enc = {N_ENC_LAYERS}, 解码器层数 N_dec = {N_DEC_LAYERS}")
-    print(f"  解码步数 T_dec = {N_DECODE_STEPS} (与 pure_gru 对齐)")
+    print(f"  解码步数 T_dec = {N_DECODE_STEPS} (与 pure_bigru 对齐)")
 
     model.to(device)
     print(f"  ✅ 模型已移至 {device}")

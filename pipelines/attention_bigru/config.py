@@ -8,10 +8,10 @@ Attention-Bi-GRU 意图增强管线 — 统一配置
     - 可视化 (visualize.py)
     - 对比   (compare_all.py)
 
-★ 与 pure_gru 的关键差异:
+★ 与 pure_bigru 的关键差异:
     - 模型: Bi-GRU + Attention + 意图融合 (编码器直出架构)
     - 输入: 位置 + RF 筛选特征 + SVM 4 维意图概率
-    - 归一化: MinMaxScaler [0,1] (与 pure_gru 对齐)
+    - 归一化: MinMaxScaler [0,1] (与 pure_bigru 完全一致, 保证对比公平)
 ==============================================================================
 """
 
@@ -48,18 +48,18 @@ OUT_CMP_CDF = os.path.join(OUTPUT_CMP_DIR, "compare_error_cdf_all.png")
 OUT_CMP_DIR = OUTPUT_CMP_DIR
 OUT_METRICS = os.path.join(OUTPUT_CMP_DIR, "compare_metrics_all.json")
 
-PURE_DATA_DIR = os.path.join(PROJECT_ROOT, "processed_data")
-PURE_X_TEST  = os.path.join(PURE_DATA_DIR, "X_test.npy")
-PURE_Y_TEST  = os.path.join(PURE_DATA_DIR, "Y_test.npy")
-PURE_MODEL   = os.path.join(PURE_DATA_DIR, "best_gru_model.pth")
-PURE_SCALER  = os.path.join(PURE_DATA_DIR, "scaler_params.npz")
+PURE_BIGRU_DATA_DIR = os.path.join(PROJECT_ROOT, "processed_data", "pure_bigru")
+PURE_X_TEST  = os.path.join(PURE_BIGRU_DATA_DIR, "X_test.npy")
+PURE_Y_TEST  = os.path.join(PURE_BIGRU_DATA_DIR, "Y_test.npy")
+PURE_MODEL   = os.path.join(PURE_BIGRU_DATA_DIR, "best_bigru_model.pth")
+PURE_SCALER  = os.path.join(PURE_BIGRU_DATA_DIR, "scaler_params.npz")
 
 ORIGINAL_INTERVAL_S = 0.033333
 TARGET_INTERVAL_S = 0.1
 DOWNSAMPLE_FACTOR = round(TARGET_INTERVAL_S / ORIGINAL_INTERVAL_S)
 TRAIN_RATIO = 0.8
 
-LOOK_BACK = 50
+LOOK_BACK = 30
 FORWARD_LENGTH = 1
 
 RF_N_ESTIMATORS = 200
