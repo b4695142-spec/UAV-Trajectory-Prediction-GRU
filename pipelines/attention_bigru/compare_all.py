@@ -209,7 +209,7 @@ def run_attention_bigru():
     X_test = np.load(ATTN_X_TEST)
     Y_test = np.load(ATTN_Y_TEST)
     params = np.load(ATTN_SCALER)
-    mean, scale = params["mean"], params["scale"]
+    data_min, data_max = params["data_min"], params["data_max"]
 
     # 拆分增广 X: 最后 N_INTENT 列为 SVM 概率, 其余为结构性特征
     input_size = X_test.shape[-1] - N_INTENT
@@ -232,8 +232,8 @@ def run_attention_bigru():
     model.to(device)
 
     Y_pred = _infer_attn(model, X_feat_test, X_intent_test, device)
-    Y_pred_real = _inverse_standard(Y_pred, mean, scale)
-    Y_test_real = _inverse_standard(Y_test, mean, scale)
+    Y_pred_real = _inverse_minmax(Y_pred, data_min, data_max)
+    Y_test_real = _inverse_minmax(Y_test, data_min, data_max)
 
     print(f"  X_test: {X_test.shape}   (input_size={input_size}, n_intent={N_INTENT})")
     print(f"  Y_pred_real: {Y_pred_real.shape}")
@@ -341,8 +341,8 @@ def print_hyperparam_table():
     print(f"{'维度':<22s}  {'pure_gru':>22s}  {'Attn-Bi-GRU':>22s}")
     print("-" * 88)
     rows = [
-        ("归一化方法",          "MinMaxScaler [0,1]", "StandardScaler (论文 Eq.8)"),
-        ("模型架构",            "单向 GRU → Linear", "Bi-GRU 编/解码器 + 动态 Attn"),
+        ("归一化方法",          "MinMaxScaler [0,1]", "MinMaxScaler [0,1]"),
+        ("模型架构",            "单向 GRU → Linear", "Bi-GRU + Attention + 意图融合"),
         ("意图融合",            "无", "每层每步 GeLU + Concat 融合"),
         ("Hidden Size",        "64",                "64"),
         ("编/解码层数",         "2",                 f"{N_ENC_LAYERS} / {N_DEC_LAYERS}"),
@@ -484,8 +484,8 @@ def main():
     print("  【公平性保障与混淆变量声明】")
     print("    ✅ 同一数据源 (OnboardGPS.csv) 与同一 80:20 时序切分")
     print("    ✅ 两条管线 scaler 均仅在训练集上 fit")
-    print("    ⚠️  归一化方法不同: pure_gru=MinMax, Attn-Bi-GRU=Standard (论文 Eq.8)")
-    print("    ⚠️  超参数差异: lr / batch / dropout / epochs / 架构 (见下方对比表)")
+    print("    ✅ 归一化方法相同: 均使用 MinMaxScaler [0,1]")
+    print("    ⚠️  超参数差异: 架构 / 意图融合 (见下方对比表)")
     print()
 
     pure_pred, pure_true = run_pure_gru()
@@ -523,8 +523,8 @@ def main():
                 "decode_steps": 1,
             },
             "attention_bigru": {
-                "model": "AttentionBiGRU (Bi-GRU 编/解码器 + 动态 Attention)",
-                "normalization": "StandardScaler (论文 Equation 8, train-only fit)",
+                "model": "AttentionBiGRU (Bi-GRU + Attention + 意图融合)",
+                "normalization": "MinMaxScaler [0, 1] (train-only fit)",
                 "hidden_size": HIDDEN_SIZE,
                 "n_enc_layers": N_ENC_LAYERS,
                 "n_dec_layers": N_DEC_LAYERS,
@@ -534,8 +534,8 @@ def main():
                 "learning_rate": LEARNING_RATE,
                 "batch_size": BATCH_SIZE,
                 "max_epochs": MAX_EPOCHS,
-                "intent_fusion": "每层每步 GeLU + Concat 融合 (论文 Eq.31-32)",
-                "attention": "动态 Seq2Seq 缩放点积 Attention (Q 每步重新计算)",
+                "intent_fusion": "GeLU 意图投影 + Concat 融合 (论文 Eq.31-32)",
+                "attention": "缩放点积 Attention (Q=编码器末步)",
                 "decode_steps": N_DECODE_STEPS,
             },
         },

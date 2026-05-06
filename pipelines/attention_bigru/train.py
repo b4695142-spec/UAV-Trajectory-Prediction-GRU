@@ -33,6 +33,7 @@ from torch.utils.data import DataLoader, Dataset
 
 from config import (
     BATCH_SIZE,
+    CLIP_GRAD_NORM,
     D_FF,
     DROPOUT,
     HIDDEN_SIZE,
@@ -173,7 +174,7 @@ def train(
     last_epoch = 0
     for epoch in range(1, MAX_EPOCHS + 1):
         last_epoch = epoch
-        train_loss = train_one_epoch(model, train_loader, criterion, optimizer, device)
+        train_loss = train_one_epoch(model, train_loader, criterion, optimizer, device, max_grad_norm=CLIP_GRAD_NORM)
         test_loss = evaluate(model, test_loader, criterion, device)
         early_stopping(test_loss, model, epoch)
 

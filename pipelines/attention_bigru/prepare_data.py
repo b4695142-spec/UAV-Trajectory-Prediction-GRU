@@ -42,7 +42,7 @@ from typing import List, Tuple
 
 import numpy as np
 from sklearn.metrics import classification_report
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler
 
 from config import (
     DOWNSAMPLE_FACTOR,
@@ -160,14 +160,14 @@ def main():
     position_train, position_test = _split_by_time(position, TRAIN_RATIO)
 
     # ★ 仅在训练集上 fit StandardScaler, 消除测试集泄漏
-    target_scaler = StandardScaler()
+    target_scaler = MinMaxScaler()
     target_scaler.fit(position_train)
-    target_all = target_scaler.transform(position)                 # (N, 3)
+    target_all = target_scaler.transform(position)
 
     print(f"  position 原始 shape: {position.shape}")
     print(f"  train/test 切分:     {len(position_train)} / {len(position_test)}")
-    print(f"  target μ (mean): {target_scaler.mean_}")
-    print(f"  target σ (std):  {target_scaler.scale_}")
+    print(f"  target min: {target_scaler.data_min_}")
+    print(f"  target max: {target_scaler.data_max_}")
     print()
 
     # ------------------------------------------------------------------
@@ -204,7 +204,7 @@ def main():
     features_train, features_test = _split_by_time(features, TRAIN_RATIO)
 
     # ★ 一次性对全部列 fit + transform (统一使用 StandardScaler)
-    feat_scaler = StandardScaler()
+    feat_scaler = MinMaxScaler()
     feat_scaler.fit(features_train)
     features_scaled_train = feat_scaler.transform(features_train)
     features_scaled_test = feat_scaler.transform(features_test)
@@ -212,8 +212,8 @@ def main():
 
     print(f"  features_scaled_train: {features_scaled_train.shape}")
     print(f"  features_scaled_test:  {features_scaled_test.shape}")
-    print(f"  feature μ[0..3]: {feat_scaler.mean_[:3]}")
-    print(f"  feature σ[0..3]: {feat_scaler.scale_[:3]}\n")
+    print(f"  feature min[0..3]: {feat_scaler.data_min_[:3]}")
+    print(f"  feature max[0..3]: {feat_scaler.data_max_[:3]}\n")
 
     # ------------------------------------------------------------------
     # 5) RF 特征重要性
@@ -389,10 +389,10 @@ def main():
     # ★ StandardScaler 参数保存为 .npz (供 visualize / compare 反归一化)
     np.savez(
         os.path.join(OUTPUT_DIR, "scaler_params.npz"),
-        mean=target_scaler.mean_,
-        scale=target_scaler.scale_,
-        feat_mean=feat_scaler.mean_,
-        feat_scale=feat_scaler.scale_,
+        data_min=target_scaler.data_min_,
+        data_max=target_scaler.data_max_,
+        feat_min=feat_scaler.data_min_,
+        feat_max=feat_scaler.data_max_,
     )
 
     # 同时保存完整的 sklearn StandardScaler 实例 (.pkl) 便于完整反演
@@ -413,9 +413,8 @@ def main():
         "downsample_factor": DOWNSAMPLE_FACTOR,
         "train_ratio": TRAIN_RATIO,
         "normalization": {
-            "method": "StandardScaler",
-            "paper_reference": "Equation 8 (Section 3.1)",
-            "scope": "全部特征 + 目标 Y 均使用 StandardScaler",
+            "method": "MinMaxScaler",
+            "scope": "全部特征 + 目标 Y 均使用 MinMaxScaler [0,1]",
             "fit_strategy": "仅在训练集上 fit, 避免数据泄漏",
         },
         "feature_names": feature_names,

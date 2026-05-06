@@ -147,36 +147,36 @@ def load_and_predict() -> tuple:
 # ============================================================================
 # 步骤 2: StandardScaler 反归一化
 # ============================================================================
-def inverse_standard(data: np.ndarray, mean: np.ndarray, scale: np.ndarray) -> np.ndarray:
+def inverse_minmax(data: np.ndarray, data_min: np.ndarray, data_max: np.ndarray) -> np.ndarray:
     """
-    StandardScaler 反归一化:  X_original = X_scaled * σ + μ
+    MinMaxScaler 反归一化:  X_original = X_scaled * (max - min) + min
 
     参数:
-        data:  归一化后的数据, shape (n, 3)
-        mean:  各特征均值 μ, shape (3,)
-        scale: 各特征标准差 σ, shape (3,)
+        data:     归一化后的数据, shape (n, 3)
+        data_min: 各特征最小值, shape (3,)
+        data_max: 各特征最大值, shape (3,)
 
     返回:
         反归一化后的真实坐标 (lat, lon, alt), shape (n, 3)
     """
-    return data * scale + mean
+    return data * (data_max - data_min) + data_min
 
 
 def denormalize(Y_pred: np.ndarray, Y_test: np.ndarray) -> tuple:
-    """加载 StandardScaler 参数, 对预测和真实值执行反归一化, 输出误差指标。"""
+    """加载 MinMaxScaler 参数, 对预测和真实值执行反归一化, 输出误差指标。"""
     print("=" * 60)
-    print("  步骤 2: 反归一化 (StandardScaler — 论文 Equation 8 逆变换)")
+    print("  步骤 2: 反归一化 (MinMaxScaler)")
     print("=" * 60)
 
     params = np.load(SCALER_PATH)
-    mean = params["mean"]
-    scale = params["scale"]
+    data_min = params["data_min"]
+    data_max = params["data_max"]
 
-    print(f"  target μ (mean):  {mean}")
-    print(f"  target σ (scale): {scale}")
+    print(f"  target min: {data_min}")
+    print(f"  target max: {data_max}")
 
-    Y_pred_real = inverse_standard(Y_pred, mean, scale)
-    Y_test_real = inverse_standard(Y_test, mean, scale)
+    Y_pred_real = inverse_minmax(Y_pred, data_min, data_max)
+    Y_test_real = inverse_minmax(Y_test, data_min, data_max)
 
     labels = ["Latitude", "Longitude", "Altitude"]
     mae = np.mean(np.abs(Y_pred_real - Y_test_real), axis=0)

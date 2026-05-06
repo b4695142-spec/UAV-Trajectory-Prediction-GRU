@@ -62,8 +62,17 @@ DERIVED_FEATURE_NAMES = [
 ]
 
 
-def _read_raw_csv(csv_path: str) -> pd.DataFrame:
-    """读取原始 CSV，并清理列名末尾空格与空尾列。"""
+def _read_raw_csv(csv_path: str, essential_nan_cols: list | None = None) -> pd.DataFrame:
+    """
+    读取原始 CSV，并清理列名末尾空格与空尾列。
+
+    参数:
+        csv_path:           CSV 文件路径
+        essential_nan_cols: 仅对这些列检查 NaN 并丢弃对应行。
+                            若为 None (默认), 则对全部列检查 NaN (旧行为)。
+                            传入 ["lat", "lon", "alt"] 可与 pure_gru 管线对齐,
+                            避免因非位置列 NaN 导致行数差异。
+    """
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"CSV 文件不存在: {csv_path}")
 
@@ -72,8 +81,12 @@ def _read_raw_csv(csv_path: str) -> pd.DataFrame:
 
     # 丢弃完全由 NaN 构成的尾列 (原始文件末尾有多余逗号)
     df = df.dropna(axis=1, how="all")
-    # 丢弃任何包含 NaN 的行
-    df = df.dropna(axis=0, how="any").reset_index(drop=True)
+
+    if essential_nan_cols is not None:
+        existing = [c for c in essential_nan_cols if c in df.columns]
+        df = df.dropna(subset=existing, axis=0, how="any").reset_index(drop=True)
+    else:
+        df = df.dropna(axis=0, how="any").reset_index(drop=True)
 
     return df
 
@@ -139,6 +152,7 @@ def extract_intent_features(
     downsample_factor: int = DEFAULT_DOWNSAMPLE_FACTOR,
     target_interval_s: float = 0.1,
     verbose: bool = True,
+    essential_nan_cols: list | None = None,
 ) -> Tuple[np.ndarray, list, pd.DataFrame]:
     """
     从 OnboardGPS.csv 提取完整的意图识别特征矩阵。
@@ -155,6 +169,8 @@ def extract_intent_features(
         downsample_factor:  降采样因子 (默认 3，与主管线保持一致)
         target_interval_s:  目标采样间隔 (秒)，用于派生特征中的 d/dt 计算
         verbose:            是否打印日志
+        essential_nan_cols: 仅对这些列检查 NaN 并丢弃对应行。
+                            传入 ["lat", "lon", "alt"] 可与 pure_gru 管线对齐。
 
     返回:
         features:   np.ndarray, shape (N, n_features), 尚未标准化
@@ -169,7 +185,7 @@ def extract_intent_features(
     # ------------------------------------------------------------------
     # 1. 读取 + 清洗
     # ------------------------------------------------------------------
-    df = _read_raw_csv(csv_path)
+    df = _read_raw_csv(csv_path, essential_nan_cols=essential_nan_cols)
     if verbose:
         print(f"  原始数据维度: {df.shape}")
         print(f"  原始列名:     {list(df.columns)}")
@@ -201,6 +217,14 @@ def extract_intent_features(
     # ------------------------------------------------------------------
     # 基础列 + 派生列
     feat_df = pd.concat([df_down[base_cols], derived_df], axis=1)
+
+    # 当使用 essential_nan_cols 时, 非位置列可能仍有 NaN (如速度列),
+    # 需要前向填充 + 后向填充以确保下游 RF/SVM 不受影响
+    nan_count_before = feat_df.isna().sum().sum()
+    if nan_count_before > 0:
+        feat_df = feat_df.ffill().bfill()
+        if verbose:
+            print(f"  ⚠️  检测到 {nan_count_before} 个 NaN 值, 已用前向/后向填充补齐")
 
     # 丢弃零方差列 (对分类器没有贡献且会污染 RF 重要性)
     keep_mask = feat_df.var(axis=0) > 1e-12

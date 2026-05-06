@@ -107,6 +107,7 @@ def train_one_epoch(
     criterion: nn.Module,
     optimizer: torch.optim.Optimizer,
     device: torch.device,
+    max_grad_norm: float = 0.0,
 ) -> float:
     """
     执行一个 Epoch 的训练。
@@ -117,6 +118,7 @@ def train_one_epoch(
         criterion: 损失函数
         optimizer: 优化器
         device: 计算设备
+        max_grad_norm: 梯度裁剪阈值; 0 表示不裁剪
 
     返回:
         avg_train_loss: 该 Epoch 的平均训练损失
@@ -126,7 +128,6 @@ def train_one_epoch(
     n_batches = 0
 
     for batch_data in train_loader:
-        # 支持两种数据格式: (X, Y) 和 (X_feat, X_intent, Y)
         if len(batch_data) == 2:
             X_batch, Y_batch = batch_data
             X_batch = X_batch.to(device)
@@ -144,6 +145,8 @@ def train_one_epoch(
         loss = criterion(pred, Y_batch)
         optimizer.zero_grad()
         loss.backward()
+        if max_grad_norm > 0:
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_grad_norm)
         optimizer.step()
 
         total_loss += loss.item()
